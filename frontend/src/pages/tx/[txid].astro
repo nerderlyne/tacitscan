@@ -235,19 +235,23 @@ switch (env.opcode) {
     break;
 }
 
-// Format a 32-byte BE wei value as a human-readable ETH amount. Falls back
-// to "—" on null. Strips trailing zeros after the decimal point. Used by
-// the bridge-opcode summaries — bridge denom_wei may exceed BIGINT range
-// for ≥ 10 ETH pools so it's stored as a decimal string in the row.
+// Format a bridge denom field as a human-readable ETH amount. The field is
+// nominally u256 (`denom_wei` per SPEC-TETH-BRIDGE-AMENDMENT §5.60.1) but
+// the deployed reference implementation stores **Tacit-side 8-decimal base
+// units** to keep values inside u64 — per the spec's own "Decimal scaling"
+// note (1 tETH base unit = 1e10 wei = 10 gwei; Tacit pool denominations
+// live in 8-decimal base units while only the Ethereum side stores wei).
+// So denom_wei=100000 in an envelope renders as 0.001 ETH (1e5 / 1e8), not
+// 1e-13 ETH (1e5 / 1e18). Strips trailing zeros; falls back to "—" on null.
 function formatWei(s: string | null | undefined): string {
   if (s == null || s === "") return "—";
   let n: bigint;
   try { n = BigInt(s); } catch { return s; }
-  const div = 10n ** 18n;
+  const div = 10n ** 8n;
   const whole = n / div;
   const frac = n % div;
   if (frac === 0n) return whole.toLocaleString();
-  const fracStr = frac.toString().padStart(18, "0").replace(/0+$/, "");
+  const fracStr = frac.toString().padStart(8, "0").replace(/0+$/, "");
   return `${whole.toLocaleString()}.${fracStr}`;
 }
 
