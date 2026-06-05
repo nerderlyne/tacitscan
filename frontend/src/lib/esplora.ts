@@ -69,6 +69,55 @@ export interface AddressUtxo {
   blockHeight?: number;
 }
 
+export interface TxIO {
+  vin: { addr: string | null; scriptType: string | null }[];
+  vout: { n: number; addr: string | null; scriptType: string; value: number }[];
+}
+
+// Fetch a tx's vin prevout addresses + vout addresses so the tx page can
+// render the recipient set. Used to distinguish recipient outputs from
+// sender's change (vouts whose address also appears in any vin prevout).
+// One Esplora call per cold render; cache lives at the CDN layer.
+export async function fetchTxIO(txid: string): Promise<TxIO | null> {
+  for (const base of ESPLORA_BASES) {
+    try {
+      const r = await fetch(`${base}/tx/${txid}`, {
+        signal: AbortSignal.timeout(3500),
+        headers: { "user-agent": "tacitscan-frontend/0.1" },
+      });
+      if (!r.ok) continue;
+      const data = (await r.json()) as {
+        vin: Array<{
+          prevout?: {
+            scriptpubkey_address?: string;
+            scriptpubkey_type?: string;
+          } | null;
+        }>;
+        vout: Array<{
+          scriptpubkey_address?: string;
+          scriptpubkey_type: string;
+          value: number;
+        }>;
+      };
+      return {
+        vin: data.vin.map((v) => ({
+          addr: v.prevout?.scriptpubkey_address ?? null,
+          scriptType: v.prevout?.scriptpubkey_type ?? null,
+        })),
+        vout: data.vout.map((o, n) => ({
+          n,
+          addr: o.scriptpubkey_address ?? null,
+          scriptType: o.scriptpubkey_type,
+          value: o.value,
+        })),
+      };
+    } catch {
+      // try next base
+    }
+  }
+  return null;
+}
+
 export async function fetchAddressUtxos(addr: string): Promise<AddressUtxo[] | null> {
   for (const base of ESPLORA_BASES) {
     try {

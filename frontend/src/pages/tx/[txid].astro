@@ -4,7 +4,7 @@ import AssetMark from "../../components/AssetMark.astro";
 import AssetThumb from "../../components/AssetThumb.astro";
 import { getEnvelope, getEnvelopeByCommitTxid, getCommitmentsByTx, setEnvelopeFee, getDuplicateTickers, getIndexerTipHeight } from "../../lib/queries";
 import { bytesToHex, formatAmount, relativeTime, shortHex, OPCODE_DESCRIPTIONS, describeBadge, describeUnknownEnvelope, displayAssetName } from "../../lib/format";
-import { fetchTxFee } from "../../lib/esplora";
+import { fetchTxFee, fetchTxIO } from "../../lib/esplora";
 import { fetchAssetMetadata, formatRevealedSupply } from "../../lib/etch-metadata";
 import airdropHistory from "../../data/airdrop-history.json";
 
@@ -86,6 +86,31 @@ if (displayFee === null || displayFee === 0n) {
 
 const sigToHex = (b: Uint8Array | null) => (b ? bytesToHex(b) : null);
 
+// SPEC-BLINDED-PUBKEY: for transfer-family opcodes a recipient output is
+// byte-identical between class-1 (classical) and class-2 (shielded
+// address) — only the recipient's wallet can tell which by trial-deriving
+// `b` against its viewing key. We surface that honestly: render the
+// recipient address set, tag outputs that match a sender input as
+// sender's change, and call the rest shielded-compatible.
+const TRANSFER_OPCODES = new Set(["CXFER", "T_CXFER_BPP", "T_AXFER", "T_AXFER_VAR"]);
+let txIo: Awaited<ReturnType<typeof fetchTxIO>> = null;
+let recipientRows:
+  | { n: number; addr: string | null; scriptType: string; value: number; kind: "recipient" | "change" }[]
+  | null = null;
+if (TRANSFER_OPCODES.has(env.opcode)) {
+  txIo = await fetchTxIO(env.txid);
+  if (txIo) {
+    const senderAddrs = new Set(txIo.vin.map((v) => v.addr).filter((a): a is string => !!a));
+    recipientRows = txIo.vout.map((o) => ({
+      n: o.n,
+      addr: o.addr,
+      scriptType: o.scriptType,
+      value: o.value,
+      kind: o.addr && senderAddrs.has(o.addr) ? ("change" as const) : ("recipient" as const),
+    }));
+  }
+}
+
 // For etch envelopes, decode the off-chain metadata blob (same helper the
 // asset page uses). For non-etch envelopes this is a no-op (asset is the
 // row that came from a separate query, and only etches set imageUri).
@@ -144,7 +169,7 @@ switch (env.opcode) {
     } else {
       summary = {
         headline: `Confidential transfer of ${ticker}`,
-        detail: `${env.n ?? "?"} recipient${env.n === 1 ? "" : "s"} received ${ticker}. Amounts are blinded behind Pedersen commitments; only sender + recipients can decode them.`,
+        detail: `${env.n ?? "?"} recipient${env.n === 1 ? "" : "s"} received ${ticker}. Amounts are blinded behind Pedersen commitments; only sender + recipients can decode them. Recipient addresses may also be shielded (class-2 stealth) — the on-chain wire shape is identical for classical and shielded receives, so only the recipient knows which.`,
       };
     }
     break;
@@ -184,6 +209,46 @@ switch (env.opcode) {
       detail: `Anonymous mint from the privacy pool of denomination ${formatAmtSimple(env.denomination, decimals)}. The accompanying zk-SNARK proof shows membership without revealing which deposit was spent; the nullifier hash prevents double-spends.`,
     };
     break;
+  case "T_BRIDGE_DEPOSIT":
+    summary = {
+      headline: `Bridge mint: ${formatWei(env.denomWei)} ETH → tETH`,
+      detail: `Trustless mint of tETH from a deposit in the Ethereum mixer contract. The Groth16 proof shows membership in the ETH-side tree without revealing which deposit; the nullifier prevents double-mint. eth_root is the Ethereum mixer tree root being proven against.`,
+    };
+    break;
+  case "T_BRIDGE_BURN":
+    summary = {
+      headline: `Bridge burn: tETH → ${formatWei(env.denomWei)} ETH`,
+      detail: `Trustless redeem of tETH to ETH. Burns a tETH leaf and commits to an Ethereum recipient + replay nonce, both bound into the Groth16 proof so a relayer can't substitute the destination. This Bitcoin tx is the proof artifact the user later presents to the Ethereum withdraw contract via a BTC inclusion proof.`,
+    };
+    break;
+  case "T_BRIDGE_ROTATE":
+    summary = {
+      headline: `tETH transfer (atomic rotate)`,
+      detail: `Atomic tETH transfer on Tacit: burns the old leaf and appends a fresh leaf under a single sender signature. Mirror of T_SLOT_ROTATE for the bridge family.`,
+    };
+    break;
+  case "T_BRIDGE_NOTE":
+    summary = {
+      headline: `tETH encrypted note`,
+      detail: `Encrypted recipient-detection memo (ephemeral pubkey + AES-256-GCM ciphertext). Only the recipient's viewing key decrypts. Standard Sapling-style sender→viewing-key ECDH; observers see only an opaque blob.`,
+    };
+    break;
+}
+
+// Format a 32-byte BE wei value as a human-readable ETH amount. Falls back
+// to "—" on null. Strips trailing zeros after the decimal point. Used by
+// the bridge-opcode summaries — bridge denom_wei may exceed BIGINT range
+// for ≥ 10 ETH pools so it's stored as a decimal string in the row.
+function formatWei(s: string | null | undefined): string {
+  if (s == null || s === "") return "—";
+  let n: bigint;
+  try { n = BigInt(s); } catch { return s; }
+  const div = 10n ** 18n;
+  const whole = n / div;
+  const frac = n % div;
+  if (frac === 0n) return whole.toLocaleString();
+  const fracStr = frac.toString().padStart(18, "0").replace(/0+$/, "");
+  return `${whole.toLocaleString()}.${fracStr}`;
 }
 
 const description = `${env.opcode} envelope${asset ? ` for ${asset.ticker}` : ""} at Bitcoin block ${env.blockHeight}. ${OPCODE_DESCRIPTIONS[env.opcode] ?? ""}`;
@@ -419,6 +484,35 @@ const jsonLd = {
         </>
       )
     }
+    {
+      env.denomWei && (
+        <>
+          <dt>denom_wei</dt>
+          <dd class="mono">
+            {env.denomWei}
+            <span class="muted"> · {formatWei(env.denomWei)} ETH</span>
+          </dd>
+        </>
+      )
+    }
+    {
+      env.ethRecipient && (
+        <>
+          <dt>eth_recipient</dt>
+          <dd class="mono">
+            0x{env.ethRecipient}
+          </dd>
+        </>
+      )
+    }
+    {
+      env.opcode === "T_BRIDGE_DEPOSIT" && env.merkleRoot && (
+        <>
+          <dt>eth_root <span class="muted">· Ethereum mixer tree root</span></dt>
+          <dd class="mono">{env.merkleRoot}</dd>
+        </>
+      )
+    }
   </dl>
 
   {isEtch && etchMetadata && (etchMetadata.parsed || etchMetadata.error) && (
@@ -479,6 +573,57 @@ const jsonLd = {
         </dl>
       )}
     </section>
+  )}
+
+  {recipientRows && recipientRows.length > 0 && (
+    <>
+      <h2>Recipients</h2>
+      <p class="muted" style="font-size:12px;margin:-4px 0 8px;max-width:760px;line-height:1.5;">
+        tacit recipient outputs use the same on-chain wire shape for classical
+        and <a href="https://github.com/z0r0z/tacit/blob/main/spec/amendments/SPEC-BLINDED-PUBKEY-AMENDMENT.md">class-2 shielded addresses</a> —
+        an indexer can't distinguish a stable recipient pubkey from a per-tx stealth commit.
+        Only the recipient's wallet can confirm by trial-deriving against its viewing key.
+        Outputs paying back to a sender input are tagged as change.
+      </p>
+      <div class="card" style="padding:0">
+        <table class="list">
+          <thead>
+            <tr>
+              <th style="width:60px">vout</th>
+              <th>address</th>
+              <th style="width:140px">script</th>
+              <th style="width:120px">value</th>
+              <th style="width:200px">role</th>
+            </tr>
+          </thead>
+          <tbody>
+            {recipientRows.map((r) => (
+              <tr>
+                <td class="mono">{r.n}</td>
+                <td class="mono" style="word-break:break-all">
+                  {r.addr ? (
+                    <a href={`/address/${r.addr}`}>{r.addr}</a>
+                  ) : (
+                    <span class="muted">—</span>
+                  )}
+                </td>
+                <td class="mono muted">{r.scriptType}</td>
+                <td class="mono">{r.value} sats</td>
+                <td>
+                  {r.kind === "change" ? (
+                    <span class="muted">sender's change</span>
+                  ) : (
+                    <span class="status-ok" data-tip="May be a classical pubkey OR a per-tx class-2 shielded commit — wire-identical by design (SPEC-BLINDED-PUBKEY).">
+                      recipient · shielded-compatible
+                    </span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   )}
 
   {

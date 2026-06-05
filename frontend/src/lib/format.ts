@@ -98,6 +98,10 @@ export const OPCODE_DESCRIPTIONS: Record<string, string> = {
   T_CBTC_TAC_DEPOSIT: "cBTC.tac mint — LP-share lien backing a cBTC.zk slot.",
   T_CBTC_TAC_FORCE_CLOSE: "cBTC.tac force-close — permissionless liquidation when collateral ratio drops.",
   T_CTAC_LIEN_SPLIT: "cBTC.tac lien split — split a liened LP-share UTXO; lien inherits onto one output.",
+  T_BRIDGE_DEPOSIT: "tETH bridge deposit — trustless mint of tETH on Tacit by proving a deposit into the Ethereum mixer contract.",
+  T_BRIDGE_BURN: "tETH bridge burn — trustless redeem of tETH to an Ethereum recipient; this Bitcoin tx becomes the proof artifact.",
+  T_BRIDGE_ROTATE: "tETH bridge rotate — atomic tETH transfer between Tacit wallets (burn old leaf + mint new leaf, one sig).",
+  T_BRIDGE_NOTE: "tETH bridge note — encrypted recipient-detection memo; only the recipient's viewing key decrypts.",
   UNKNOWN: "Malformed or unrecognized envelope.",
   // Asset-kind aliases use the same descriptions (cetch/t_petch are also opcodes).
   cetch: "Confidential etch — issues a new asset with hidden supply.",

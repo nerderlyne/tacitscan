@@ -194,6 +194,38 @@ function buildUpdateSet(env: DecodedEnvelope): Partial<typeof schema.envelopes.$
         merkleRoot: bytesToHex(env.positionLeafHash),
         n: env.outputs.length,
       };
+    case "T_BRIDGE_DEPOSIT":
+      return {
+        ...base,
+        assetId: env.assetId,
+        denomWei: env.denomWei.toString(),
+        merkleRoot: bytesToHex(env.ethRoot),
+        nullifierHash: bytesToHex(env.nullifierHash),
+        proofBytes: env.proof,
+        n: 1,
+      };
+    case "T_BRIDGE_BURN":
+      return {
+        ...base,
+        assetId: env.assetId,
+        denomWei: env.denomWei.toString(),
+        merkleRoot: bytesToHex(env.merkleRoot),
+        nullifierHash: bytesToHex(env.nullifierHash),
+        ethRecipient: bytesToHex(env.ethRecipient),
+        proofBytes: env.proof,
+      };
+    case "T_BRIDGE_ROTATE":
+      return {
+        ...base,
+        assetId: env.assetId,
+        denomWei: env.denomWei.toString(),
+        merkleRoot: bytesToHex(env.merkleRoot),
+        nullifierHash: bytesToHex(env.nullifierHash),
+        proofBytes: env.oldProof,
+        n: 1,
+      };
+    case "T_BRIDGE_NOTE":
+      return { ...base };
     // The originally-shipped opcodes shouldn't appear in this backfill
     // (they were already recognized when the envelope was ingested), but
     // be defensive in case of future shifts: skip rather than partially

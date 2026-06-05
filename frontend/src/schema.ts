@@ -93,6 +93,8 @@ export const envelopes = pgTable(
     decodeError: text("decode_error"),
     spendingPubkey: text("spending_pubkey"),
     commitTxid: text("commit_txid"),
+    denomWei: text("denom_wei"),
+    ethRecipient: text("eth_recipient"),
     commitmentValid: boolean("commitment_valid"),
     commitmentCheckedAt: timestamp("commitment_checked_at", { withTimezone: true }),
     commitmentInvalidReason: text("commitment_invalid_reason"),

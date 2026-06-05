@@ -152,6 +152,14 @@ export async function persistEnvelope(
       return persistTCbtcTacForceClose(db, env, ctx, base);
     case "T_CTAC_LIEN_SPLIT":
       return persistTCtacLienSplit(db, env, ctx, base);
+    case "T_BRIDGE_DEPOSIT":
+      return persistTBridgeDeposit(db, env, ctx, base);
+    case "T_BRIDGE_BURN":
+      return persistTBridgeBurn(db, env, ctx, base);
+    case "T_BRIDGE_ROTATE":
+      return persistTBridgeRotate(db, env, ctx, base);
+    case "T_BRIDGE_NOTE":
+      return persistTBridgeNote(db, env, ctx, base);
   }
 }
 
@@ -811,6 +819,98 @@ async function persistTCtacLienSplit(
       ...(base as object),
       merkleRoot: bytesToHex(env.positionLeafHash),
       n: env.outputs.length,
+    } as typeof schema.envelopes.$inferInsert)
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+}
+
+// SPEC-TETH-BRIDGE-AMENDMENT §5.60: T_BRIDGE_DEPOSIT — trustless tETH mint.
+// Stores eth_root in merkle_root (semantic fit — the cross-chain reference
+// root), denom_wei as decimal text (u256), nullifier_hash, and the Groth16
+// deposit proof. n=1 (one new leaf appended to the tETH pool).
+async function persistTBridgeDeposit(
+  db: DB,
+  env: Extract<DecodedEnvelope, { opcode: "T_BRIDGE_DEPOSIT" }>,
+  ctx: TxCtx,
+  base: object,
+) {
+  await db
+    .insert(schema.envelopes)
+    .values({
+      ...(base as object),
+      assetId: env.assetId,
+      denomWei: env.denomWei.toString(),
+      merkleRoot: bytesToHex(env.ethRoot),
+      nullifierHash: bytesToHex(env.nullifierHash),
+      proofBytes: env.proof,
+      n: 1,
+    } as typeof schema.envelopes.$inferInsert)
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+}
+
+// SPEC-TETH-BRIDGE-AMENDMENT §5.61: T_BRIDGE_BURN — trustless tETH → ETH.
+// merkle_root is the Tacit-side pool root; eth_recipient holds the 20-byte
+// destination address. The burn becomes a proof artifact the user later
+// presents to the Ethereum withdraw contract via a BTC inclusion proof.
+async function persistTBridgeBurn(
+  db: DB,
+  env: Extract<DecodedEnvelope, { opcode: "T_BRIDGE_BURN" }>,
+  ctx: TxCtx,
+  base: object,
+) {
+  await db
+    .insert(schema.envelopes)
+    .values({
+      ...(base as object),
+      assetId: env.assetId,
+      denomWei: env.denomWei.toString(),
+      merkleRoot: bytesToHex(env.merkleRoot),
+      nullifierHash: bytesToHex(env.nullifierHash),
+      ethRecipient: bytesToHex(env.ethRecipient),
+      proofBytes: env.proof,
+    } as typeof schema.envelopes.$inferInsert)
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+}
+
+// SPEC-TETH-BRIDGE-AMENDMENT §5.62: T_BRIDGE_ROTATE — atomic tETH transfer.
+// Combines a burn leg (old nullifier + proof) with a mint leg (new leaf)
+// bound by sender_sig. Stored shape mirrors T_BRIDGE_BURN minus the
+// eth_recipient (the rotate stays on Tacit).
+async function persistTBridgeRotate(
+  db: DB,
+  env: Extract<DecodedEnvelope, { opcode: "T_BRIDGE_ROTATE" }>,
+  ctx: TxCtx,
+  base: object,
+) {
+  await db
+    .insert(schema.envelopes)
+    .values({
+      ...(base as object),
+      assetId: env.assetId,
+      denomWei: env.denomWei.toString(),
+      merkleRoot: bytesToHex(env.merkleRoot),
+      nullifierHash: bytesToHex(env.nullifierHash),
+      proofBytes: env.oldProof,
+      n: 1,
+    } as typeof schema.envelopes.$inferInsert)
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+}
+
+// SPEC-TETH-BRIDGE-AMENDMENT §5.63: T_BRIDGE_NOTE — encrypted memo.
+// Opaque 122-byte payload (ephemeral_pubkey + ciphertext); only the
+// recipient's viewing key decrypts. We store the envelope row for
+// indexability — the bytes themselves stay in raw_payload.
+async function persistTBridgeNote(
+  db: DB,
+  env: Extract<DecodedEnvelope, { opcode: "T_BRIDGE_NOTE" }>,
+  ctx: TxCtx,
+  base: object,
+) {
+  // Touch env so TS doesn't complain about unused destructure target.
+  void env;
+  await db
+    .insert(schema.envelopes)
+    .values({
+      ...(base as object),
     } as typeof schema.envelopes.$inferInsert)
     .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
 }

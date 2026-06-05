@@ -26,6 +26,10 @@ export const OPCODES = {
   T_CBTC_TAC_DEPOSIT: 0x49,
   T_CBTC_TAC_FORCE_CLOSE: 0x4b,
   T_CTAC_LIEN_SPLIT: 0x4f,
+  T_BRIDGE_DEPOSIT: 0x60,
+  T_BRIDGE_BURN: 0x61,
+  T_BRIDGE_ROTATE: 0x62,
+  T_BRIDGE_NOTE: 0x63,
 } as const;
 
 export const OPCODE_NAMES: Record<number, string> = {
@@ -51,6 +55,10 @@ export const OPCODE_NAMES: Record<number, string> = {
   0x49: "T_CBTC_TAC_DEPOSIT",
   0x4b: "T_CBTC_TAC_FORCE_CLOSE",
   0x4f: "T_CTAC_LIEN_SPLIT",
+  0x60: "T_BRIDGE_DEPOSIT",
+  0x61: "T_BRIDGE_BURN",
+  0x62: "T_BRIDGE_ROTATE",
+  0x63: "T_BRIDGE_NOTE",
 };
 
 const MAGIC = new TextEncoder().encode("TACIT");
@@ -90,6 +98,16 @@ class Cursor {
     let v = 0n;
     for (let i = 7; i >= 0; i--) v = (v << 8n) | BigInt(this.buf[this.off + i]!);
     this.off += 8;
+    return v;
+  }
+  // 32-byte big-endian unsigned integer. Used by bridge envelopes for
+  // denom_wei (matches Solidity's native uint256 / ABI convention) and
+  // for the Ethereum / Tacit pool roots when interpreted numerically.
+  takeU256BE(): bigint {
+    if (this.off + 32 > this.buf.length) throw new Error("eof u256");
+    let v = 0n;
+    for (let i = 0; i < 32; i++) v = (v << 8n) | BigInt(this.buf[this.off + i]!);
+    this.off += 32;
     return v;
   }
   takeBytes(n: number): Uint8Array {
@@ -206,7 +224,21 @@ export type DecodedEnvelope =
   // SPEC-CBTC-TAC-AMENDMENT §5.38: T_CBTC_TAC_FORCE_CLOSE — permissionless liquidation. Fixed 106 bytes.
   | { opcode: "T_CBTC_TAC_FORCE_CLOSE"; payload: Uint8Array; networkTag: number; targetLeafHash: Uint8Array; liquidatorPayoutPk: Uint8Array; ammSwapMinBtcOut: bigint; bindHash: Uint8Array }
   // SPEC-CBTC-TAC-AMENDMENT §5.47.6: T_CTAC_LIEN_SPLIT — split a liened LP-share UTXO.
-  | { opcode: "T_CTAC_LIEN_SPLIT"; payload: Uint8Array; networkTag: number; positionLeafHash: Uint8Array; sourceOutpoint: Uint8Array; outputs: { amount: bigint; blinding: Uint8Array; commit: Uint8Array }[]; lienInheritIndex: number; depositorSig: Uint8Array; bindHash: Uint8Array };
+  | { opcode: "T_CTAC_LIEN_SPLIT"; payload: Uint8Array; networkTag: number; positionLeafHash: Uint8Array; sourceOutpoint: Uint8Array; outputs: { amount: bigint; blinding: Uint8Array; commit: Uint8Array }[]; lienInheritIndex: number; depositorSig: Uint8Array; bindHash: Uint8Array }
+  // SPEC-TETH-BRIDGE-AMENDMENT §5.60: T_BRIDGE_DEPOSIT — trustless mint of tETH on Tacit by proving
+  // a deposit into the Ethereum mixer contract. Reuses the existing mixer withdraw circuit.
+  | { opcode: "T_BRIDGE_DEPOSIT"; payload: Uint8Array; networkTag: number; assetId: string; denomWei: bigint; ethRoot: Uint8Array; nullifierHash: Uint8Array; recipientCommit: Uint8Array; leafHash: Uint8Array; rLeaf: Uint8Array; bindHash: Uint8Array; proof: Uint8Array }
+  // SPEC-TETH-BRIDGE-AMENDMENT §5.61: T_BRIDGE_BURN — trustless redeem of tETH back to ETH.
+  // Burns a tETH leaf and commits to an Ethereum recipient + replay nonce; the Bitcoin tx becomes
+  // the proof artifact later presented to the Ethereum withdraw contract.
+  | { opcode: "T_BRIDGE_BURN"; payload: Uint8Array; networkTag: number; assetId: string; denomWei: bigint; merkleRoot: Uint8Array; nullifierHash: Uint8Array; recipientCommit: Uint8Array; rLeaf: Uint8Array; ethRecipient: Uint8Array; burnNonce: Uint8Array; bindHash: Uint8Array; proof: Uint8Array }
+  // SPEC-TETH-BRIDGE-AMENDMENT §5.62: T_BRIDGE_ROTATE — atomic tETH transfer (burn old leaf,
+  // append new leaf) under a single sender signature.
+  | { opcode: "T_BRIDGE_ROTATE"; payload: Uint8Array; networkTag: number; assetId: string; denomWei: bigint; merkleRoot: Uint8Array; nullifierHash: Uint8Array; oldRecipientCommit: Uint8Array; oldRLeaf: Uint8Array; oldBindHash: Uint8Array; oldProof: Uint8Array; newRecipientCommit: Uint8Array; newLeafHash: Uint8Array; senderPubkey: Uint8Array; senderSig: Uint8Array }
+  // SPEC-TETH-BRIDGE-AMENDMENT §5.63: T_BRIDGE_NOTE — encrypted recipient-detection memo
+  // (identical pattern to T_SLOT_NOTE §5.26): 33-byte ephemeral pubkey + 89-byte AES-256-GCM
+  // ciphertext containing (secret, ν, amount_hint) so the recipient's wallet can scan + spend.
+  | { opcode: "T_BRIDGE_NOTE"; payload: Uint8Array; ephemeralPubkey: Uint8Array; ciphertext: Uint8Array };
 
 export type DecodeResult =
   | { ok: true; envelope: DecodedEnvelope; rawPayload: Uint8Array }
@@ -316,6 +348,18 @@ export function decodePayload(payload: Uint8Array): DecodeResult {
         break;
       case OPCODES.T_CTAC_LIEN_SPLIT:
         envelope = decodeTCtacLienSplit(payload, c);
+        break;
+      case OPCODES.T_BRIDGE_DEPOSIT:
+        envelope = decodeTBridgeDeposit(payload, c);
+        break;
+      case OPCODES.T_BRIDGE_BURN:
+        envelope = decodeTBridgeBurn(payload, c);
+        break;
+      case OPCODES.T_BRIDGE_ROTATE:
+        envelope = decodeTBridgeRotate(payload, c);
+        break;
+      case OPCODES.T_BRIDGE_NOTE:
+        envelope = decodeTBridgeNote(payload, c);
         break;
       default:
         return { ok: false, reason: `unknown opcode 0x${op.toString(16)}`, rawPayload: payload };
@@ -865,6 +909,75 @@ function decodeTCbtcTacForceClose(payload: Uint8Array, c: Cursor): DecodedEnvelo
   const ammSwapMinBtcOut = c.takeU64LE();
   const bindHash = c.takeBytes(32);
   return { opcode: "T_CBTC_TAC_FORCE_CLOSE", payload, networkTag, targetLeafHash, liquidatorPayoutPk, ammSwapMinBtcOut, bindHash };
+}
+
+// SPEC-TETH-BRIDGE-AMENDMENT §5.60: T_BRIDGE_DEPOSIT — fixed 261-byte header + Groth16 proof.
+// Uses 32-byte BE for denom_wei (matches Ethereum ABI / Solidity uint256 storage); the rest
+// of the bytes use the same Pedersen + Poseidon shapes as T_SLOT_BURN / T_WITHDRAW.
+function decodeTBridgeDeposit(payload: Uint8Array, c: Cursor): DecodedEnvelope {
+  const networkTag = c.takeU8();
+  const assetId = bytesToHex(c.takeBytes(32));
+  const denomWei = c.takeU256BE();
+  const ethRoot = c.takeBytes(32);
+  const nullifierHash = c.takeBytes(32);
+  const recipientCommit = c.takeBytes(33);
+  const leafHash = c.takeBytes(32);
+  const rLeaf = c.takeBytes(32);
+  const bindHash = c.takeBytes(32);
+  const proofLen = c.takeU16LE();
+  const proof = c.takeBytes(proofLen);
+  return { opcode: "T_BRIDGE_DEPOSIT", payload, networkTag, assetId, denomWei, ethRoot, nullifierHash, recipientCommit, leafHash, rLeaf, bindHash, proof };
+}
+
+// SPEC-TETH-BRIDGE-AMENDMENT §5.61: T_BRIDGE_BURN — fixed 281-byte header + Groth16 proof.
+// Adds eth_recipient (20B) + burn_nonce (32B) bound into the proof via bind_hash so a
+// relayer can't substitute the destination address on a captured proof.
+function decodeTBridgeBurn(payload: Uint8Array, c: Cursor): DecodedEnvelope {
+  const networkTag = c.takeU8();
+  const assetId = bytesToHex(c.takeBytes(32));
+  const denomWei = c.takeU256BE();
+  const merkleRoot = c.takeBytes(32);
+  const nullifierHash = c.takeBytes(32);
+  const recipientCommit = c.takeBytes(33);
+  const rLeaf = c.takeBytes(32);
+  const ethRecipient = c.takeBytes(20);
+  const burnNonce = c.takeBytes(32);
+  const bindHash = c.takeBytes(32);
+  const proofLen = c.takeU16LE();
+  const proof = c.takeBytes(proofLen);
+  return { opcode: "T_BRIDGE_BURN", payload, networkTag, assetId, denomWei, merkleRoot, nullifierHash, recipientCommit, rLeaf, ethRecipient, burnNonce, bindHash, proof };
+}
+
+// SPEC-TETH-BRIDGE-AMENDMENT §5.62: T_BRIDGE_ROTATE — combines a T_BRIDGE_BURN-shape old-leaf
+// burn leg with a fresh leaf-append mint leg, atomically tied together by a BIP-340 sig.
+function decodeTBridgeRotate(payload: Uint8Array, c: Cursor): DecodedEnvelope {
+  const networkTag = c.takeU8();
+  const assetId = bytesToHex(c.takeBytes(32));
+  const denomWei = c.takeU256BE();
+  // old-leaf burn leg
+  const merkleRoot = c.takeBytes(32);
+  const nullifierHash = c.takeBytes(32);
+  const oldRecipientCommit = c.takeBytes(33);
+  const oldRLeaf = c.takeBytes(32);
+  const oldBindHash = c.takeBytes(32);
+  const oldProofLen = c.takeU16LE();
+  const oldProof = c.takeBytes(oldProofLen);
+  // new-leaf mint leg
+  const newRecipientCommit = c.takeBytes(33);
+  const newLeafHash = c.takeBytes(32);
+  // binding sig
+  const senderPubkey = c.takeBytes(33);
+  const senderSig = c.takeBytes(64);
+  return { opcode: "T_BRIDGE_ROTATE", payload, networkTag, assetId, denomWei, merkleRoot, nullifierHash, oldRecipientCommit, oldRLeaf, oldBindHash, oldProof, newRecipientCommit, newLeafHash, senderPubkey, senderSig };
+}
+
+// SPEC-TETH-BRIDGE-AMENDMENT §5.63: T_BRIDGE_NOTE — fixed 122-byte encrypted-note envelope,
+// structurally identical to T_SLOT_NOTE (33-byte ephemeral_pubkey + 89-byte AES-256-GCM
+// ciphertext). Recipient decrypts with its viewing key; observers see only an opaque blob.
+function decodeTBridgeNote(payload: Uint8Array, c: Cursor): DecodedEnvelope {
+  const ephemeralPubkey = c.takeBytes(33);
+  const ciphertext = c.takeBytes(89);
+  return { opcode: "T_BRIDGE_NOTE", payload, ephemeralPubkey, ciphertext };
 }
 
 // SPEC-CBTC-TAC-AMENDMENT §5.47.6: T_CTAC_LIEN_SPLIT — split a liened LP-share UTXO.

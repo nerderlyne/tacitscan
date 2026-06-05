@@ -125,6 +125,16 @@ export const envelopes = pgTable(
     // half has no envelope of its own and would otherwise 404.
     commitTxid: text("commit_txid"),
 
+    // SPEC-TETH-BRIDGE-AMENDMENT: u256 wei amount (decimal string). Bridge
+    // envelopes use 32-byte BE wei values that overflow Postgres BIGINT
+    // for pools ≥ 10 ETH (1e20 wei), so we store the decimal string and
+    // let the frontend format. Null for non-bridge envelopes.
+    denomWei: text("denom_wei"),
+    // SPEC-TETH-BRIDGE-AMENDMENT §5.61: 20-byte Ethereum address the
+    // ETH-side withdrawal will pay out to (T_BRIDGE_BURN / ROTATE).
+    // Stored as 40-char hex string. Null for non-bridge envelopes.
+    ethRecipient: text("eth_recipient"),
+
     // Cryptographic validation result, populated by the validator loop
     // for T_PMINT envelopes. null until checked, true/false after.
     commitmentValid: boolean("commitment_valid"),
