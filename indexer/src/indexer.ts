@@ -309,42 +309,57 @@ export async function runIndexer(): Promise<never> {
     `[${cfg.network}] starting at height ${cursor.height + 1}, source=${source.name}, confirmationDepth=${cfg.confirmationDepth}`,
   );
 
+  // The block walker must never take the process down. Every external dep
+  // it touches (data sources, DB) can throw transiently — a paid RPC that
+  // runs out of balance, an all-sources-down moment, a tip-adjacent 404.
+  // On ANY throw we log, sleep, and retry the iteration. Progress is
+  // checkpointed in the cursor after each block, so a retry resumes exactly
+  // where it left off. Combined with the Esplora client's rate-limit
+  // backoff, the worst case is "indexes slowly", never "crashes".
   while (true) {
-    const tip = await source.getTipHeight();
-    const safeTip = tip - cfg.confirmationDepth;
-    if (cursor.height >= safeTip) {
-      await sleep(cfg.tipPollSec * 1000);
-      continue;
-    }
-
-    const next = cursor.height + 1;
-    const batchEnd = Math.min(next + cfg.backfillBatch - 1, safeTip);
-    const startedAt = Date.now();
-    let totalProcessed = 0;
-
-    for (let h = next; h <= batchEnd; h++) {
-      const { blockHash, processed, reorg } = await processBlock(source, cfg.network, h, cursor.hash);
-      if (reorg) {
-        const ancestor = await findCommonAncestor(source, cfg.network, cursor.height, cfg.maxReorgDepth);
-        console.warn(`[${cfg.network}] rewinding to ancestor height=${ancestor}`);
-        await rewindTo(cfg.network, ancestor);
-        const ancestorRow = await db.query.blocks.findFirst({
-          where: and(eq(schema.blocks.network, cfg.network), eq(schema.blocks.height, ancestor)),
-        });
-        cursor = { height: ancestor, hash: ancestorRow?.blockHash ?? "" };
-        await setCursor(cfg.network, cursor.height, cursor.hash);
-        break;
+    try {
+      const tip = await source.getTipHeight();
+      const safeTip = tip - cfg.confirmationDepth;
+      if (cursor.height >= safeTip) {
+        await sleep(cfg.tipPollSec * 1000);
+        continue;
       }
-      totalProcessed += processed;
-      cursor = { height: h, hash: blockHash };
-      await setCursor(cfg.network, h, blockHash);
-    }
 
-    const took = ((Date.now() - startedAt) / 1000).toFixed(1);
-    if (cursor.height >= next) {
-      console.log(
-        `[${cfg.network}] ${next}..${cursor.height} (+${totalProcessed} envelopes) in ${took}s, tip=${tip}`,
+      const next = cursor.height + 1;
+      const batchEnd = Math.min(next + cfg.backfillBatch - 1, safeTip);
+      const startedAt = Date.now();
+      let totalProcessed = 0;
+
+      for (let h = next; h <= batchEnd; h++) {
+        const { blockHash, processed, reorg } = await processBlock(source, cfg.network, h, cursor.hash);
+        if (reorg) {
+          const ancestor = await findCommonAncestor(source, cfg.network, cursor.height, cfg.maxReorgDepth);
+          console.warn(`[${cfg.network}] rewinding to ancestor height=${ancestor}`);
+          await rewindTo(cfg.network, ancestor);
+          const ancestorRow = await db.query.blocks.findFirst({
+            where: and(eq(schema.blocks.network, cfg.network), eq(schema.blocks.height, ancestor)),
+          });
+          cursor = { height: ancestor, hash: ancestorRow?.blockHash ?? "" };
+          await setCursor(cfg.network, cursor.height, cursor.hash);
+          break;
+        }
+        totalProcessed += processed;
+        cursor = { height: h, hash: blockHash };
+        await setCursor(cfg.network, h, blockHash);
+      }
+
+      const took = ((Date.now() - startedAt) / 1000).toFixed(1);
+      if (cursor.height >= next) {
+        console.log(
+          `[${cfg.network}] ${next}..${cursor.height} (+${totalProcessed} envelopes) in ${took}s, tip=${tip}`,
+        );
+      }
+    } catch (e) {
+      // Don't advance the cursor — retry from the same height next loop.
+      console.error(
+        `[${cfg.network}] walker iteration failed at height ${cursor.height + 1}, retrying after backoff: ${(e as Error).message}`,
       );
+      await sleep(cfg.tipPollSec * 1000);
     }
   }
 }

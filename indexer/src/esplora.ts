@@ -2,7 +2,7 @@
 // Public free instances: mempool.space, blockstream.info.
 // Same interface ports cleanly to a managed provider later — just swap
 // the BitcoinDataSource impl.
-import pRetry, { AbortError } from "p-retry";
+import { AbortError } from "p-retry";
 import type { BitcoinDataSource, FullBlock } from "./source.js";
 
 export interface EsploraTx {
@@ -55,6 +55,10 @@ export interface EsploraBlock {
 
 export class EsploraClient implements BitcoinDataSource {
   readonly name: string;
+  // Timestamp (ms) until which we hold off firing the next request. A 429
+  // pushes this forward so the whole client self-paces under throttling
+  // instead of hammering the endpoint and tripping more rate limits.
+  private paceUntil = 0;
   constructor(
     private readonly primary: string,
     private readonly fallback?: string,
@@ -85,63 +89,84 @@ export class EsploraClient implements BitcoinDataSource {
     return this.fallback ? [this.primary, this.fallback] : [this.primary];
   }
 
-  private async fetchJson<T>(path: string): Promise<T> {
-    return pRetry(
-      async () => {
-        let lastErr: unknown;
-        for (const base of this.endpoints()) {
-          try {
-            const r = await fetch(`${base}${path}`, {
-              headers: { "user-agent": "tacitscan-indexer/0.1", ...this.authHeaders },
-              // Hard ceiling so a hung connection can't trap the whole
-              // indexer loop. Each attempt gets 15s; pRetry adds up to 4
-              // retries so worst-case latency is bounded.
-              signal: AbortSignal.timeout(15_000),
-            });
-            if (r.status === 404) {
-              throw new AbortError(`404: ${path}`);
-            }
-            if (!r.ok) {
-              lastErr = new Error(`HTTP ${r.status} from ${base}${path}`);
-              continue;
-            }
-            return (await r.json()) as T;
-          } catch (e) {
-            if (e instanceof AbortError) throw e;
-            lastErr = e;
-          }
-        }
-        throw lastErr ?? new Error(`fetch failed: ${path}`);
-      },
-      { retries: 4, minTimeout: 500, maxTimeout: 5000, factor: 2 },
-    );
+  private fetchJson<T>(path: string): Promise<T> {
+    return this.request(path, (r) => r.json() as Promise<T>);
   }
 
-  private async fetchText(path: string): Promise<string> {
-    return pRetry(
-      async () => {
-        let lastErr: unknown;
-        for (const base of this.endpoints()) {
-          try {
-            const r = await fetch(`${base}${path}`, {
-              headers: { "user-agent": "tacitscan-indexer/0.1", ...this.authHeaders },
-              signal: AbortSignal.timeout(15_000),
-            });
-            if (r.status === 404) throw new AbortError(`404: ${path}`);
-            if (!r.ok) {
-              lastErr = new Error(`HTTP ${r.status} from ${base}${path}`);
-              continue;
-            }
-            return await r.text();
-          } catch (e) {
-            if (e instanceof AbortError) throw e;
-            lastErr = e;
+  private fetchText(path: string): Promise<string> {
+    return this.request(path, (r) => r.text());
+  }
+
+  // Rate-limit-aware fetch with endpoint failover.
+  //
+  // The public Esplora instances we fall back to (mempool.space) throttle
+  // hard. Rather than let a 429 bubble up and take down the walker, we
+  // honor Retry-After, back off, and keep retrying — the indexer simply
+  // slows down under load instead of failing. A genuine 404 is the only
+  // terminal outcome (AbortError, so withFallback can try another source).
+  // Other transient errors get a bounded retry; if they still fail we throw
+  // and the walker loop in runIndexer() catches, sleeps, and retries the
+  // whole iteration — so nothing here can crash the process.
+  private async request<T>(path: string, parse: (r: Response) => Promise<T>): Promise<T> {
+    // How many non-rate-limit transient failures to tolerate before
+    // throwing back to the loop guard. 429s are NOT counted against this —
+    // they retry until they clear.
+    const maxTransientAttempts = 6;
+    let transientAttempts = 0;
+    let rlAttempts = 0;
+    while (true) {
+      // Respect any cooldown a prior 429 imposed.
+      const wait = this.paceUntil - Date.now();
+      if (wait > 0) await sleep(wait);
+
+      let lastErr: unknown;
+      let rateLimited = false;
+      let retryAfterMs = 0;
+      for (const base of this.endpoints()) {
+        try {
+          const r = await fetch(`${base}${path}`, {
+            headers: { "user-agent": "tacitscan-indexer/0.1", ...this.authHeaders },
+            // Hard ceiling so a hung connection can't trap the loop.
+            signal: AbortSignal.timeout(15_000),
+          });
+          if (r.status === 404) throw new AbortError(`404: ${path}`);
+          if (r.status === 429) {
+            rateLimited = true;
+            retryAfterMs = Math.max(retryAfterMs, parseRetryAfter(r.headers.get("retry-after")));
+            lastErr = new Error(`HTTP 429 from ${base}${path}`);
+            continue; // try the other endpoint before backing off
           }
+          if (!r.ok) {
+            lastErr = new Error(`HTTP ${r.status} from ${base}${path}`);
+            continue;
+          }
+          // Success — let the pace decay back toward zero.
+          this.paceUntil = 0;
+          return await parse(r);
+        } catch (e) {
+          if (e instanceof AbortError) throw e;
+          lastErr = e;
         }
+      }
+
+      if (rateLimited) {
+        // Slow down and keep going — never give up on throttling.
+        rlAttempts++;
+        const backoff = retryAfterMs || Math.min(30_000, 1000 * 2 ** Math.min(rlAttempts, 5));
+        this.paceUntil = Date.now() + backoff;
+        console.warn(`[${this.name}] rate limited on ${path}; slowing down ${backoff}ms`);
+        await sleep(backoff);
+        continue;
+      }
+
+      // Non-rate-limit transient (5xx, network, timeout): bounded retry,
+      // then throw up to the loop guard.
+      transientAttempts++;
+      if (transientAttempts >= maxTransientAttempts) {
         throw lastErr ?? new Error(`fetch failed: ${path}`);
-      },
-      { retries: 4, minTimeout: 500, maxTimeout: 5000, factor: 2 },
-    );
+      }
+      await sleep(Math.min(5000, 500 * 2 ** transientAttempts));
+    }
   }
 
   async getTipHeight(): Promise<number> {
@@ -190,4 +215,17 @@ export class EsploraClient implements BitcoinDataSource {
     for (const page of results) if (page) out.push(...page);
     return out;
   }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+// Retry-After is either delta-seconds or an HTTP date. We honor the
+// numeric (seconds) form — the only one mempool.space sends — and ignore
+// the date form, falling back to our own exponential backoff (returns 0).
+function parseRetryAfter(header: string | null): number {
+  if (!header) return 0;
+  const secs = Number(header.trim());
+  return Number.isFinite(secs) && secs >= 0 ? Math.min(secs, 60) * 1000 : 0;
 }
