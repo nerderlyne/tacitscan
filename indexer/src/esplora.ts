@@ -129,7 +129,11 @@ export class EsploraClient implements BitcoinDataSource {
             // Hard ceiling so a hung connection can't trap the loop.
             signal: AbortSignal.timeout(15_000),
           });
-          if (r.status === 404) throw new AbortError(`404: ${path}`);
+          // Auth / billing / not-found: retrying won't help. Throw terminal
+          // so withFallback moves to the next source immediately instead of
+          // burning the transient-retry budget on a hard-down endpoint
+          // (e.g. Maestro 402 "payment required", a lapsed-plan 403, a 404).
+          if (TERMINAL_STATUSES.has(r.status)) throw new AbortError(`HTTP ${r.status}: ${path}`);
           if (r.status === 429) {
             rateLimited = true;
             retryAfterMs = Math.max(retryAfterMs, parseRetryAfter(r.headers.get("retry-after")));
@@ -216,6 +220,10 @@ export class EsploraClient implements BitcoinDataSource {
     return out;
   }
 }
+
+// Client errors that retrying can't fix — fall back to the next source at
+// once. 429 is deliberately excluded; it means "slow down", handled above.
+const TERMINAL_STATUSES = new Set([400, 401, 402, 403, 404]);
 
 function sleep(ms: number): Promise<void> {
   return new Promise((res) => setTimeout(res, ms));
