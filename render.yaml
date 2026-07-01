@@ -1,0 +1,30 @@
+# Render Blueprint for the tacitscan frontend (Astro SSR on Node).
+# The indexer stays on Railway — it is intentionally not defined here.
+#
+# Deploy: push this file, then in Render create a new "Blueprint" from the
+# repo. Render reads the service below and provisions it. Set the secret
+# env vars (DATABASE_URL) in the dashboard or via the group prompt.
+services:
+  - type: web
+    name: tacitscan-frontend
+    runtime: node
+    plan: starter
+    region: ohio # closest to the Vercel iad1 region we ran in before
+    rootDir: frontend
+    # Render auto-detects pnpm from pnpm-lock.yaml.
+    buildCommand: pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      # Same Postgres the indexer writes to. Use the pooled connection
+      # string. Marked sync:false so Render prompts for it instead of
+      # baking a secret into the repo.
+      - key: DATABASE_URL
+        sync: false
+      - key: PUBLIC_SITE_NAME
+        value: tacitscan
+      - key: PUBLIC_NETWORK
+        value: mainnet

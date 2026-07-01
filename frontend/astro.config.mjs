@@ -1,37 +1,19 @@
 import { defineConfig } from "astro/config";
-import vercel from "@astrojs/vercel";
+import node from "@astrojs/node";
 
 export default defineConfig({
   output: "server",
-  adapter: vercel({
-    edgeMiddleware: false,
-    // Allow up to 120s per serverless function execution. The upstream
-    // queue worker has been getting progressively slower (40+s already)
-    // and could climb further as the queue grows. 2 min gives runway
-    // without risking Vercel's hard caps. Other routes that finish in
-    // <1s are unaffected.
-    maxDuration: 120,
-    isr: {
-      // Cache static-ish pages at the edge. Mutations only happen when the
-      // indexer writes new rows, so 30s freshness is fine for v1.
-      // Routes that take query params (?q=, ?p=) are excluded so each
-      // filter value renders fresh — the Vercel ISR cache key strips
-      // query strings, which would otherwise collapse all filters into
-      // one cached response.
-      expiration: 30,
-      exclude: [
-        "/api/feed",
-        "/api/search",
-        "/api/health",
-        "/api/airdrop-check",
-        "/api/airdrop-queue.json",
-        "/api/airdrop-uptime.json",
-        "/assets",
-        "/airdrop/queue",
-      ],
-    },
-  }),
+  // Render runs this as a long-lived Node web service, so the standalone
+  // adapter bundles its own HTTP server (dist/server/entry.mjs). It binds
+  // to HOST/PORT from the environment — Render sets PORT for us.
+  //
+  // Note on caching: the edge ISR we had on Vercel is gone here. Per-route
+  // freshness is instead handled by the cache-control headers the API
+  // routes set themselves (feed/search: short max-age; health: no-store),
+  // which Render's CDN and downstream caches honor.
+  adapter: node({ mode: "standalone" }),
   server: {
+    host: true,
     port: 4321,
   },
 });

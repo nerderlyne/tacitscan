@@ -10,7 +10,7 @@ tacitscan/
 ├── indexer/    Node + TypeScript. Reads Bitcoin via dRPC (or Esplora),
 │               decodes envelopes, writes Postgres. Runs on Railway.
 └── frontend/   Astro SSR. Queries Postgres directly, ships near-zero JS.
-                Runs on Vercel.
+                Runs on Render.
 ```
 
 Both subdirs deploy independently and share a Postgres. There are no
@@ -39,7 +39,7 @@ workspace links between them — `frontend/src/schema.ts` is a copy of
                                                     │
                                                     ▼
                                            ┌──────────────────┐
-                                           │     frontend     │  Vercel
+                                           │     frontend     │  Render
                                            │     Astro SSR    │
                                            └──────────────────┘
 ```
@@ -128,21 +128,29 @@ pnpm dev                # http://localhost:4321
    and `START_HEIGHT`).
 6. Allocate at least 512 MB. Indexer is single-threaded; one instance is enough.
 
-### Frontend → Vercel
+### Frontend → Render
 
-1. New Vercel project → import the same repo.
-2. **Root directory**: `frontend`.
-3. **Framework**: Astro (auto-detected).
-4. **Build command**: `pnpm build` (default).
-5. Env vars: `DATABASE_URL` (use Neon's **pooled** URL), `PUBLIC_SITE_NAME`,
-   `PUBLIC_NETWORK`.
-6. Deploy. The first request to a fresh page will take ~500 ms (cold start +
-   one DB roundtrip); subsequent edge cache hits are sub-100 ms.
+The frontend uses Astro's Node adapter (`output: "server"`,
+`mode: "standalone"`) and runs as a long-lived Render **Web Service**.
+The repo ships a `render.yaml` Blueprint, so the easiest path is:
+
+1. New Render **Blueprint** → point it at this repo. Render reads
+   `render.yaml` and provisions the `tacitscan-frontend` web service
+   (root dir `frontend`, build `pnpm install --frozen-lockfile && pnpm build`,
+   start `pnpm start`, health check `/api/health`).
+2. When prompted, set `DATABASE_URL` (the only secret; `sync: false` in the
+   Blueprint). `PUBLIC_SITE_NAME` and `PUBLIC_NETWORK` are already defaulted
+   in `render.yaml` — override in the dashboard if needed.
+3. Deploy. Render sets `PORT`; the standalone server binds it automatically.
+
+To wire it up manually instead: create a Web Service, root dir `frontend`,
+runtime Node, build `pnpm install --frozen-lockfile && pnpm build`, start
+command `pnpm start`, and add the env vars above.
 
 ### Postgres → Neon
 
-- Create a project. Use the region closest to Vercel's edge
-  (`us-east-1` works well for the default Vercel region).
+- Create a project. Use the region closest to the Render service
+  (`us-east-1` pairs well with Render's Ohio region).
 - Free tier handles tacitscan's load comfortably. Upgrade once you need
   >0.5 GB or constant connections.
 - Use the **pooled** connection string (`-pooler` in the host) for the

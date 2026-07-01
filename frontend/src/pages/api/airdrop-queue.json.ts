@@ -3,11 +3,11 @@
 // The worker takes ~25-30s to return 700+ claims and scales linearly
 // with queue size. If every page viewer fetched directly, the worker
 // would melt under any real traffic. This endpoint sits in front:
-// browsers hit /api/airdrop-queue.json (served from Vercel's edge in
-// <100ms), and we only call the worker once every ~30s regardless of
-// viewer count.
+// browsers hit /api/airdrop-queue.json (served from Render's CDN /
+// downstream caches in <100ms), and we only call the worker once every
+// ~30s regardless of viewer count.
 //
-// Cache behavior (Vercel edge CDN, via Cache-Control):
+// Cache behavior (CDN + downstream caches, via Cache-Control):
 //   - s-maxage=30:                  fresh for 30s (only one viewer
 //                                   triggers a worker re-fetch per 30s)
 //   - stale-while-revalidate=3600:  serve stale for up to 1 hour while
@@ -19,8 +19,8 @@
 import type { APIRoute } from "astro";
 
 export const prerender = false;
-// maxDuration is set globally to 60s in astro.config.mjs since astrojs/vercel
-// 10.x only accepts it at the adapter level, not per-route.
+// Runs on Render as a long-lived Node service, so there is no per-request
+// serverless timeout to worry about — the fetch below caps itself instead.
 
 const DROP_ROOT = "3c578c51bbf33f583eee9e571514616775b8d9ae4e1b282e1fb9c4b5b268c545";
 const WORKER_BASE = "https://tacit-pin.rosscampbell9.workers.dev";
@@ -30,9 +30,8 @@ export const GET: APIRoute = async ({ url }) => {
   const workerUrl = `${WORKER_BASE}/airdrops/${DROP_ROOT}/claims?network=${encodeURIComponent(network)}`;
 
   try {
-    // Fetch timeout sits just under the function's maxDuration (120s)
-    // so we surface a useful error rather than have the function die
-    // mid-response.
+    // Cap the upstream fetch at 110s so we surface a useful error rather
+    // than hang the request indefinitely if the worker stalls.
     const resp = await fetch(workerUrl, {
       signal: AbortSignal.timeout(110_000),
     });
