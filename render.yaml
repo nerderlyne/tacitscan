@@ -14,7 +14,9 @@ services:
     # Render auto-detects pnpm from pnpm-lock.yaml.
     buildCommand: pnpm install --frozen-lockfile && pnpm build
     startCommand: pnpm start
-    healthCheckPath: /api/health
+    # Liveness only — must not depend on the DB or indexer freshness, or a
+    # lagging indexer / DB blip would fail an otherwise-healthy deploy.
+    healthCheckPath: /api/live
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
