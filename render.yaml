@@ -51,7 +51,7 @@ services:
       - key: CONFIRMATION_DEPTH
         value: "3"
       - key: BITCOIN_RPC_URL
-        sync: false
+        value: https://bitcoin-rpc.publicnode.com
       - key: ESPLORA_URL
         value: https://mempool.space/api
       - key: ESPLORA_FALLBACK_URL
