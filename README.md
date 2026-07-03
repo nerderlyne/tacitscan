@@ -126,11 +126,11 @@ Postgres they share.
    `tacitscan-db` (Postgres), `tacitscan-frontend` (web), `tacitscan-indexer`
    (worker). `DATABASE_URL` is wired into both services from the DB
    automatically — no secret to copy.
-2. When prompted, set the `sync: false` secrets:
-   - `MAESTRO_API_KEY` — free Maestro plan key for the indexer.
-   - `BITCOIN_RPC_URL` *(optional)* — a free dRPC/QuickNode URL. Set it to
-     backfill in ~1–3 h (one `getblock` per block); leave blank to backfill on
-     the free Esplora tiers (~1–2 days for the ~8k-block Tacit range).
+2. When prompted, set the one `sync: false` secret:
+   - `BITCOIN_RPC_URL` — a dRPC URL. This is the primary/fast path: backfills
+     the ~8k-block Tacit range in ~1–3 h (one `getblock` per block). Leave it
+     blank to run on the free Esplora endpoints (mempool.space / blockstream)
+     instead — correct, but ~1–2 days.
 3. Apply. The frontend binds Render's `PORT`; the indexer runs migrations then
    the block walker (`pnpm start`).
 

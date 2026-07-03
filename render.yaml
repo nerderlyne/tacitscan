@@ -1,17 +1,8 @@
-# Render Blueprint for tacitscan: frontend (Astro SSR) + indexer (worker) +
-# a managed Postgres they share. This replaces the previous Railway indexer.
-#
-# Apply: push this file, then in Render open the Blueprint and "Apply" so it
-# provisions the new database + worker and picks up the new env vars. Adding
-# services/DBs is NOT done by autoDeploy — you must re-sync the Blueprint once.
-# You'll be prompted for the sync:false secrets (MAESTRO_API_KEY, and the
-# optional BITCOIN_RPC_URL). DATABASE_URL is wired automatically from the DB.
-
 databases:
   - name: tacitscan-db
     databaseName: tacitscan
     user: tacitscan
-    plan: basic-256mb # small; the Tacit-only dataset is well under 1 GB
+    plan: basic-256mb
     region: ohio
 
 services:
@@ -21,18 +12,13 @@ services:
     plan: starter
     region: ohio
     rootDir: frontend
-    # Render auto-detects pnpm from pnpm-lock.yaml.
     buildCommand: pnpm install --frozen-lockfile && pnpm build
     startCommand: pnpm start
-    # Liveness only — must not depend on the DB or indexer freshness, or a
-    # lagging indexer / DB blip would fail an otherwise-healthy deploy.
     healthCheckPath: /api/live
     autoDeploy: true
     envVars:
       - key: NODE_VERSION
         value: "24"
-      # Wired straight from the managed DB below — same Postgres the indexer
-      # writes to, so no manual secret to keep in sync.
       - key: DATABASE_URL
         fromDatabase:
           name: tacitscan-db
@@ -42,8 +28,6 @@ services:
       - key: PUBLIC_NETWORK
         value: mainnet
 
-  # Block-walking indexer. A worker (no HTTP port); `pnpm start` runs
-  # migrations then the walker loop. Replaces the Railway deployment.
   - type: worker
     name: tacitscan-indexer
     runtime: node
@@ -62,25 +46,11 @@ services:
           property: connectionString
       - key: BITCOIN_NETWORK
         value: mainnet
-      # Tacit's first mainnet envelope (TAC etch) is block 948242; start one
-      # before. WITHOUT this the code defaults to 860000 and backfills ~96k
-      # pointless pre-Tacit blocks. Do not remove.
       - key: START_HEIGHT
         value: "948241"
       - key: CONFIRMATION_DEPTH
         value: "3"
-      # Source priority is RPC -> Maestro -> public Esplora (indexer.ts).
-      #
-      # BITCOIN_RPC_URL (optional): set a free dRPC/QuickNode URL to backfill
-      # in ~1-3h (one getblock call per block). Leave blank and the backfill
-      # runs on the free Esplora tiers below — correct, but ~1-2 days for the
-      # ~8k-block backfill because Esplora needs ~120 paged calls per block.
       - key: BITCOIN_RPC_URL
-        sync: false
-      # Free Maestro plan. When it rate-limits (429) the client backs off;
-      # when it exhausts quota (402/403) it falls back to the public Esplora
-      # endpoints below — so the backfill always completes, just slower.
-      - key: MAESTRO_API_KEY
         sync: false
       - key: ESPLORA_URL
         value: https://mempool.space/api
