@@ -8,7 +8,7 @@ Source: [github.com/nerderlyne/tacitscan](https://github.com/nerderlyne/tacitsca
 ```
 tacitscan/
 ├── indexer/    Node + TypeScript. Reads Bitcoin via dRPC (or Esplora),
-│               decodes envelopes, writes Postgres. Runs on Railway.
+│               decodes envelopes, writes Postgres. Runs on Render.
 └── frontend/   Astro SSR. Queries Postgres directly, ships near-zero JS.
                 Runs on Render.
 ```
@@ -25,7 +25,7 @@ workspace links between them — `frontend/src/schema.ts` is a copy of
    Bitcoin                  ┌──── dRPC (primary) ─────┐
   ───────────►              │                         ▼
                             │              ┌──────────────────┐
-                            └── mempool ──►│     indexer      │  Railway
+                            └── mempool ──►│     indexer      │  Render
                                 fallback   │                  │
                                            │  block walk      │
                                            │  decode envelope │
@@ -118,43 +118,28 @@ pnpm dev                # http://localhost:4321
 
 ## Deploy
 
-### Indexer → Railway
+Everything runs on **Render** from a single `render.yaml` Blueprint:
+the frontend (Astro SSR web service), the indexer (worker), and a managed
+Postgres they share.
 
-1. Push the repo to GitHub.
-2. New Railway project → "Deploy from GitHub repo" → select this repo.
-3. **Root directory**: `indexer`.
-4. **Start command**: `pnpm db:migrate && pnpm build && pnpm start`.
-5. Add env vars from `indexer/.env.example` (most importantly `DATABASE_URL`
-   and `START_HEIGHT`).
-6. Allocate at least 512 MB. Indexer is single-threaded; one instance is enough.
+1. New Render **Blueprint** → point it at this repo. It provisions all three:
+   `tacitscan-db` (Postgres), `tacitscan-frontend` (web), `tacitscan-indexer`
+   (worker). `DATABASE_URL` is wired into both services from the DB
+   automatically — no secret to copy.
+2. When prompted, set the `sync: false` secrets:
+   - `MAESTRO_API_KEY` — free Maestro plan key for the indexer.
+   - `BITCOIN_RPC_URL` *(optional)* — a free dRPC/QuickNode URL. Set it to
+     backfill in ~1–3 h (one `getblock` per block); leave blank to backfill on
+     the free Esplora tiers (~1–2 days for the ~8k-block Tacit range).
+3. Apply. The frontend binds Render's `PORT`; the indexer runs migrations then
+   the block walker (`pnpm start`).
 
-### Frontend → Render
+**Adding services requires re-syncing the Blueprint** — plain `git push`
+autoDeploys *existing* services but won't create the new DB/worker or pick up
+new env vars. Open the Blueprint in Render and "Apply" once after this change.
 
-The frontend uses Astro's Node adapter (`output: "server"`,
-`mode: "standalone"`) and runs as a long-lived Render **Web Service**.
-The repo ships a `render.yaml` Blueprint, so the easiest path is:
-
-1. New Render **Blueprint** → point it at this repo. Render reads
-   `render.yaml` and provisions the `tacitscan-frontend` web service
-   (root dir `frontend`, build `pnpm install --frozen-lockfile && pnpm build`,
-   start `pnpm start`, health check `/api/health`).
-2. When prompted, set `DATABASE_URL` (the only secret; `sync: false` in the
-   Blueprint). `PUBLIC_SITE_NAME` and `PUBLIC_NETWORK` are already defaulted
-   in `render.yaml` — override in the dashboard if needed.
-3. Deploy. Render sets `PORT`; the standalone server binds it automatically.
-
-To wire it up manually instead: create a Web Service, root dir `frontend`,
-runtime Node, build `pnpm install --frozen-lockfile && pnpm build`, start
-command `pnpm start`, and add the env vars above.
-
-### Postgres → Neon
-
-- Create a project. Use the region closest to the Render service
-  (`us-east-1` pairs well with Render's Ohio region).
-- Free tier handles tacitscan's load comfortably. Upgrade once you need
-  >0.5 GB or constant connections.
-- Use the **pooled** connection string (`-pooler` in the host) for the
-  frontend. The indexer can use either.
+Managed Postgres (`tacitscan-db`) is `basic-256mb`; the Tacit-only dataset is
+well under 1 GB. Bump the plan in the Blueprint if you outgrow it.
 
 ---
 
