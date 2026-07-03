@@ -32,8 +32,8 @@ import { withFallback, type BitcoinDataSource } from "./source.js";
 function buildSource(): BitcoinDataSource {
   const cfg = loadConfig();
   const esplora = new EsploraClient(cfg.esploraUrl, cfg.esploraFallback);
-  if (cfg.rpcUrl) {
-    const rpc = new BitcoinRpcClient(cfg.rpcUrl);
+  if (cfg.rpcUrls.length) {
+    const rpc = new BitcoinRpcClient(cfg.rpcUrls);
     return withFallback(rpc, esplora);
   }
   return esplora;

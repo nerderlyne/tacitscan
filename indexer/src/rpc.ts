@@ -46,31 +46,63 @@ interface RpcBlockV2 {
 
 export class BitcoinRpcClient implements BitcoinDataSource {
   readonly name = "rpc";
-  constructor(private readonly url: string) {}
+  private readonly urls: string[];
+  // Round-robin cursor. Rotating the endpoint each call spreads load across
+  // the configured nodes so no single free node hits its rate limit as fast,
+  // and lets one cover for the other when it's throttled or down.
+  private cursor = 0;
+  constructor(url: string | string[]) {
+    this.urls = (Array.isArray(url) ? url : [url]).map((u) => u.trim()).filter(Boolean);
+    if (this.urls.length === 0) throw new Error("BitcoinRpcClient: no RPC url configured");
+  }
 
   private async call<T>(method: string, params: unknown[] = []): Promise<T> {
+    const body = JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 });
     return pRetry(
       async () => {
-        const r = await fetch(this.url, {
-          method: "POST",
-          headers: { "content-type": "application/json", "user-agent": "tacitscan-indexer/0.1" },
-          body: JSON.stringify({ jsonrpc: "2.0", method, params, id: 1 }),
-          // Bound per-call latency so a single stuck dRPC connection
-          // can't freeze the block walker.
-          signal: AbortSignal.timeout(20_000),
-        });
-        if (r.status >= 400 && r.status < 500 && r.status !== 429) {
-          const text = await r.text();
-          throw new AbortError(`HTTP ${r.status}: ${text.slice(0, 200)}`);
+        // One attempt tries each endpoint once in rotating order; first
+        // success wins. Rotating the start index alternates the primary
+        // between calls, and the inner loop means a single throttled/down
+        // node is skipped rather than failing the whole call.
+        const start = this.cursor++;
+        let lastErr: unknown;
+        // Only abort (skip retries → fall back to Esplora) if EVERY endpoint
+        // gave a terminal 4xx that retrying can't fix (e.g. a metered key's
+        // "balance exceeded"). A transient failure on any endpoint keeps us
+        // in pRetry's backoff so a brief blip doesn't drop us to Esplora.
+        let allTerminal = true;
+        for (let i = 0; i < this.urls.length; i++) {
+          const url = this.urls[(start + i) % this.urls.length]!;
+          try {
+            const r = await fetch(url, {
+              method: "POST",
+              headers: { "content-type": "application/json", "user-agent": "tacitscan-indexer/0.1" },
+              body,
+              // Bound per-call latency so a single stuck connection can't
+              // freeze the block walker.
+              signal: AbortSignal.timeout(20_000),
+            });
+            if (r.ok) {
+              const data = (await r.json()) as { result?: T; error?: { code: number; message: string } };
+              if (!data.error) return data.result as T;
+              // JSON-RPC-level error: can be permanent or transient — retry.
+              allTerminal = false;
+              lastErr = new Error(`rpc ${method} via ${hostOf(url)}: ${data.error.message}`);
+              continue;
+            }
+            const terminal = r.status >= 400 && r.status < 500 && r.status !== 429;
+            if (!terminal) allTerminal = false;
+            lastErr = new Error(`HTTP ${r.status} from ${hostOf(url)}`);
+          } catch (e) {
+            // network / timeout — transient.
+            allTerminal = false;
+            lastErr = e;
+          }
         }
-        if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const data = (await r.json()) as { result?: T; error?: { code: number; message: string } };
-        if (data.error) {
-          // Some RPC errors are permanent (bad params); others are transient.
-          // We can't always distinguish, so retry — pRetry's cap will stop us.
-          throw new Error(`rpc ${method}: ${data.error.message}`);
+        if (allTerminal) {
+          throw new AbortError(`all RPC endpoints terminal 4xx (${method}): ${String(lastErr)}`);
         }
-        return data.result as T;
+        throw lastErr ?? new Error(`all RPC endpoints failed: ${method}`);
       },
       { retries: 4, minTimeout: 400, maxTimeout: 4000, factor: 2 },
     );
@@ -113,6 +145,14 @@ export class BitcoinRpcClient implements BitcoinDataSource {
     // caller (mempool poller) ignores. Block fields aren't used downstream
     // for chain_status='mempool' inserts.
     return rpcTxToEsplora(tx, 0, tx.blockhash ?? "", tx.blocktime ?? Math.floor(Date.now() / 1000));
+  }
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
   }
 }
 

@@ -21,9 +21,22 @@ import { BitcoinRpcClient } from "./rpc.js";
 import { withFallback, type BitcoinDataSource } from "./source.js";
 import { persistEnvelope, type TxCtx } from "./handlers.js";
 
+// Free, keyless, unmetered public Bitcoin JSON-RPC nodes. The RPC client
+// round-robins across them so the backfill isn't bottlenecked on one free
+// node's rate limit and each covers for the other when throttled. Mainnet
+// only — signet has no equivalent, so it stays on Esplora unless
+// BITCOIN_RPC_URL is set explicitly.
+const DEFAULT_MAINNET_RPC_URLS = [
+  "https://bitcoin-rpc.publicnode.com",
+  "https://bitcoin.drpc.org",
+];
+
 interface Config {
   network: string;
-  rpcUrl?: string;
+  // One or more Bitcoin JSON-RPC endpoints, tried round-robin. Defaults to
+  // the free public nodes above on mainnet; override (single or comma-
+  // separated) via BITCOIN_RPC_URL.
+  rpcUrls: string[];
   esploraUrl: string;
   esploraFallback?: string;
   // Maestro (gomaestro.org) is Esplora-compatible at the URL level but
@@ -42,7 +55,7 @@ interface Config {
 
 export function loadConfig(): Config {
   const network = process.env.BITCOIN_NETWORK ?? "mainnet";
-  const rpcUrl = process.env.BITCOIN_RPC_URL || undefined;
+  const rpcUrls = resolveRpcUrls(network);
   const esploraUrl = process.env.ESPLORA_URL ?? "https://mempool.space/api";
   const esploraFallback = process.env.ESPLORA_FALLBACK_URL || undefined;
   const maestroUrl = process.env.MAESTRO_URL ?? "https://xbt-mainnet.gomaestro-api.org/v0";
@@ -61,7 +74,7 @@ export function loadConfig(): Config {
   const maxReorgDepth = Number(process.env.MAX_REORG_DEPTH ?? 20);
   return {
     network,
-    rpcUrl,
+    rpcUrls,
     esploraUrl,
     esploraFallback,
     maestroUrl,
@@ -74,20 +87,33 @@ export function loadConfig(): Config {
   };
 }
 
+function resolveRpcUrls(network: string): string[] {
+  // Explicit override wins — comma-separated for multiple endpoints.
+  const explicit = (process.env.BITCOIN_RPC_URL ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (explicit.length) return explicit;
+  // No override: default mainnet to the free public nodes; leave signet
+  // (and any other network) on Esplora unless BITCOIN_RPC_URL is set.
+  return network === "mainnet" ? DEFAULT_MAINNET_RPC_URLS : [];
+}
+
 function buildSource(cfg: Config): BitcoinDataSource {
   // Fallback chain, ordered by per-call efficiency / rate budget:
-  //   1. dRPC (or any Bitcoin JSON-RPC) — `getblock v2` returns header
-  //      + every tx with witness in one HTTP call, by far the cheapest
-  //      way to walk blocks.
+  //   1. Bitcoin JSON-RPC — `getblock v2` returns header + every tx with
+  //      witness in one HTTP call, by far the cheapest way to walk blocks.
+  //      Round-robins across all configured endpoints (the free public
+  //      nodes by default).
   //   2. Maestro (gomaestro.org) — Esplora-compatible REST with an
   //      api-key header. ~10 req/s on Starter tier; ideal for the
   //      per-tx fetches the mempool poller and address harvester make.
   //   3. mempool.space (or any public Esplora) — free, rate-limited;
-  //      last-line fallback when the paid options are down.
+  //      last-line fallback when the options above are down.
   // Earlier entries win; withFallback chains them so each falls back
   // to the next on throw.
   const fallbacks: BitcoinDataSource[] = [];
-  if (cfg.rpcUrl) fallbacks.push(new BitcoinRpcClient(cfg.rpcUrl));
+  if (cfg.rpcUrls.length) fallbacks.push(new BitcoinRpcClient(cfg.rpcUrls));
   if (cfg.maestroApiKey) {
     fallbacks.push(
       new EsploraClient(
