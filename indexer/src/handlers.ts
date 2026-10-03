@@ -1,6 +1,7 @@
 // Per-opcode persistence. Each handler takes a decoded envelope + tx
 // context and writes rows to Postgres. Idempotent via primary keys —
 // safe to re-run on the same block.
+import { sql } from "drizzle-orm";
 import type { DB } from "./db.js";
 import { schema } from "./db.js";
 import {
@@ -40,6 +41,18 @@ function envelopeConfirmSet(ctx: TxCtx) {
     txIndex: ctx.txIndex,
     chainStatus: "confirmed" as const,
   };
+}
+
+function envelopeRefreshSet(ctx: TxCtx) {
+  return { ...envelopeConfirmSet(ctx), opcode: sql`excluded.opcode`, assetId: sql`excluded.asset_id`,
+        status: sql`excluded.status`, decodeError: sql`excluded.decode_error`,
+        kernelSig: sql`excluded.kernel_sig`, issuerSig: sql`excluded.issuer_sig`, rangeproof: sql`excluded.rangeproof`,
+        n: sql`excluded.n`, publicAmount: sql`excluded.public_amount`, burnedAmount: sql`excluded.burned_amount`,
+        etchTxid: sql`excluded.etch_txid`, rawPayload: sql`excluded.raw_payload`, rawWitness: sql`excluded.raw_witness`,
+        spendingPubkey: sql`excluded.spending_pubkey`, commitTxid: sql`excluded.commit_txid`,
+        denomination: sql`excluded.denomination`, denomWei: sql`excluded.denom_wei`, ethRecipient: sql`excluded.eth_recipient`,
+        merkleRoot: sql`excluded.merkle_root`, nullifierHash: sql`excluded.nullifier_hash`, proofBytes: sql`excluded.proof_bytes`,
+        isPoolInit: sql`excluded.is_pool_init`, assetInputCount: sql`excluded.asset_input_count` };
 }
 
 export async function persistEnvelope(
@@ -84,7 +97,7 @@ export async function persistEnvelope(
         spendingPubkey,
         commitTxid,
       })
-      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
     return;
   }
 
@@ -106,6 +119,19 @@ export async function persistEnvelope(
     spendingPubkey,
     commitTxid,
   } as const;
+
+  // Legacy bigint columns are signed. Keep exact unsigned values in the raw
+  // payload and protocol JSON instead of aborting an entire canonical block.
+  const extended = Object.values(env).some(v => typeof v === 'bigint' && (v > 9223372036854775807n || v < -9223372036854775808n));
+  if ('modern' in env || extended) {
+    await db.insert(schema.envelopes).values({
+      ...base, assetId: 'assetId' in env ? env.assetId ?? null : null,
+      n: 'n' in env ? env.n : null,
+      status: extended ? 'extended' : 'ok',
+      decodeError: extended ? 'Exact amount exceeds legacy signed storage; see protocol details or raw payload.' : null,
+    }).onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
+    return;
+  }
 
   switch (env.opcode) {
     case "CETCH":
@@ -195,7 +221,7 @@ async function persistCetch(
         rangeproof: env.rangeproof,
         n: 1,
       } as typeof schema.envelopes.$inferInsert)
-      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
     await t
       .insert(schema.commitments)
       .values({
@@ -245,7 +271,7 @@ async function persistTPetch(
         status: "malformed",
         decodeError: invalidReason,
       } as typeof schema.envelopes.$inferInsert)
-      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
     return;
   }
 
@@ -274,7 +300,7 @@ async function persistTPetch(
         ...(base as object),
         assetId,
       } as typeof schema.envelopes.$inferInsert)
-      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
     // T_PETCH produces NO tacit UTXO — no commitment row.
   });
 }
@@ -300,7 +326,7 @@ async function persistTMint(
         status: ok ? "ok" : "malformed",
         decodeError: ok ? null : "asset_id != sha256(etch_txid || 0)",
       } as typeof schema.envelopes.$inferInsert)
-      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
     await t
       .insert(schema.commitments)
       .values({
@@ -336,7 +362,7 @@ async function persistTPmint(
         status: ok ? "ok" : "malformed",
         decodeError: ok ? null : "asset_id != sha256(etch_txid || 0)",
       } as typeof schema.envelopes.$inferInsert)
-      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
     await t
       .insert(schema.commitments)
       .values({
@@ -371,7 +397,7 @@ async function persistCxfer(
         rangeproof: env.rangeproof,
         n: env.n,
       } as typeof schema.envelopes.$inferInsert)
-      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
     if (env.outputs.length > 0) {
       await t
         .insert(schema.commitments)
@@ -408,7 +434,7 @@ async function persistTAxfer(
         n: env.n,
         assetInputCount: env.assetInputCount,
       } as typeof schema.envelopes.$inferInsert)
-      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
     if (env.outputs.length > 0) {
       await t
         .insert(schema.commitments)
@@ -446,7 +472,7 @@ async function persistTBurn(
         publicAmount: env.burnedAmount,
         n: env.n,
       } as typeof schema.envelopes.$inferInsert)
-      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
     if (env.outputs.length > 0) {
       await t
         .insert(schema.commitments)
@@ -482,7 +508,7 @@ async function persistTDeposit(
       issuerSig: env.isPoolInit ? env.initSig : null,
       isPoolInit: env.isPoolInit,
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
   // T_DEPOSIT produces no tacit UTXO.
 }
 
@@ -505,7 +531,7 @@ async function persistTWithdraw(
         proofBytes: env.proof,
         n: 1,
       } as typeof schema.envelopes.$inferInsert)
-      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+      .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
     await t
       .insert(schema.commitments)
       .values({
@@ -561,7 +587,7 @@ async function persistTDrop(
   await db
     .insert(schema.envelopes)
     .values({ ...shared, ...shapeFields } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
   // T_DROP (standard) produces no tacit UTXO at vout[0]; reclaim does, but
   // we defer the commitment-table insert until a future commitment audit
   // pass — skeleton is just envelope-row visibility.
@@ -587,7 +613,7 @@ async function persistTDclaim(
       publicAmount: env.amount,
       n: 1, // T_DCLAIM produces a single recipient UTXO at vout[0]
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }
 
 // SPEC §5.7.9: T_AXFER_VAR — variable-amount atomic settlement.
@@ -601,17 +627,7 @@ async function persistTAxferVar(
   ctx: TxCtx,
   base: object,
 ) {
-  await db
-    .insert(schema.envelopes)
-    .values({
-      ...(base as object),
-      assetId: env.assetId,
-      n: env.n,
-      assetInputCount: env.assetInputCount,
-      kernelSig: env.kernelSig,
-      rangeproof: env.rangeproof,
-    } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+  return persistCxfer(db, { ...env, opcode: 'CXFER', outputs: env.outputs.map((o,i)=>({...o,vout:i*2})) }, ctx, base);
 }
 
 // SPEC §5.21: T_CXFER_BPP — wire-identical to CXFER modulo opcode + BP+ rangeproof.
@@ -624,16 +640,7 @@ async function persistTCxferBpp(
   ctx: TxCtx,
   base: object,
 ) {
-  await db
-    .insert(schema.envelopes)
-    .values({
-      ...(base as object),
-      assetId: env.assetId,
-      n: env.n,
-      kernelSig: env.kernelSig,
-      rangeproof: env.rangeproof,
-    } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+  return persistCxfer(db, { ...env, opcode: 'CXFER' }, ctx, base);
 }
 
 // SPEC §5.19: T_WRAPPER_ATTEST — signed wrapper-issuer attestation.
@@ -653,7 +660,7 @@ async function persistTWrapperAttest(
       assetId: env.assetId,
       issuerSig: env.attestationSig,
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }
 
 // SPEC-CBTC-ZK §5.21: T_SLOT_MINT — atomic cBTC.zk slot mint.
@@ -674,7 +681,7 @@ async function persistTSlotMint(
       publicAmount: env.paymentAmount,
       n: 1,
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }
 
 // SPEC-CBTC-ZK §5.22: T_SLOT_BURN — atomic slot redeem.
@@ -695,7 +702,7 @@ async function persistTSlotBurn(
       nullifierHash: bytesToHex(env.nullifierHash),
       proofBytes: env.proof,
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }
 
 // SPEC-CBTC-ZK §5.23: T_SLOT_ROTATE — atomic transfer / key rotation.
@@ -718,7 +725,7 @@ async function persistTSlotRotate(
       publicAmount: env.paymentAmount, // 0 if no payment
       n: 1,
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }
 
 // SPEC-CBTC-ZK-FUNGIBILITY §5.24: T_SLOT_SPLIT — atomic 1→N split.
@@ -741,7 +748,7 @@ async function persistTSlotSplit(
       proofBytes: env.oldProof,
       n: env.outputs.length,
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }
 
 // SPEC-CBTC-ZK-FUNGIBILITY §5.25: T_SLOT_MERGE — atomic N→1 merge.
@@ -762,7 +769,7 @@ async function persistTSlotMerge(
       assetInputCount: env.inputs.length,
       n: 1,
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }
 
 // SPEC-CBTC-TAC §5.36: T_CBTC_TAC_DEPOSIT — LP-share lien mint.
@@ -785,7 +792,7 @@ async function persistTCbtcTacDeposit(
       proofBytes: env.proof,
       n: 1,
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }
 
 // SPEC-CBTC-TAC §5.38: T_CBTC_TAC_FORCE_CLOSE — permissionless liquidation.
@@ -802,7 +809,7 @@ async function persistTCbtcTacForceClose(
       ...(base as object),
       merkleRoot: bytesToHex(env.targetLeafHash),
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }
 
 // SPEC-CBTC-TAC §5.47.6: T_CTAC_LIEN_SPLIT — split a liened LP-share UTXO.
@@ -820,7 +827,7 @@ async function persistTCtacLienSplit(
       merkleRoot: bytesToHex(env.positionLeafHash),
       n: env.outputs.length,
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }
 
 // SPEC-TETH-BRIDGE-AMENDMENT §5.60: T_BRIDGE_DEPOSIT — trustless tETH mint.
@@ -844,7 +851,7 @@ async function persistTBridgeDeposit(
       proofBytes: env.proof,
       n: 1,
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }
 
 // SPEC-TETH-BRIDGE-AMENDMENT §5.61: T_BRIDGE_BURN — trustless tETH → ETH.
@@ -868,7 +875,7 @@ async function persistTBridgeBurn(
       ethRecipient: bytesToHex(env.ethRecipient),
       proofBytes: env.proof,
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }
 
 // SPEC-TETH-BRIDGE-AMENDMENT §5.62: T_BRIDGE_ROTATE — atomic tETH transfer.
@@ -892,7 +899,7 @@ async function persistTBridgeRotate(
       proofBytes: env.oldProof,
       n: 1,
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }
 
 // SPEC-TETH-BRIDGE-AMENDMENT §5.63: T_BRIDGE_NOTE — encrypted memo.
@@ -912,5 +919,5 @@ async function persistTBridgeNote(
     .values({
       ...(base as object),
     } as typeof schema.envelopes.$inferInsert)
-    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeConfirmSet(ctx) });
+    .onConflictDoUpdate({ target: schema.envelopes.txid, set: envelopeRefreshSet(ctx) });
 }

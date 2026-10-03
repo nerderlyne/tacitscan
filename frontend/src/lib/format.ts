@@ -1,3 +1,4 @@
+import { CURRENT_OPS, supportStatus } from "./protocol";
 // Disambiguates assets with the same ticker (per SPEC §4: ticker is NOT
 // unique, multiple T_PETCHes can share the same human-readable name).
 // `unique` ticker → just the ticker. Collision → `TICKER#<8-hex>` of the
@@ -108,6 +109,13 @@ export const OPCODE_DESCRIPTIONS: Record<string, string> = {
   t_petch: "Permissionless-mint deployment — declares a fair-launch asset.",
 };
 
+for (const name of Object.values(CURRENT_OPS)) {
+  OPCODE_DESCRIPTIONS[name] = `${name.replace(/^T_/, '').toLowerCase().replaceAll('_', ' ')} — ${supportStatus(name)} protocol operation. Decoding alone does not verify acceptance.`;
+}
+OPCODE_DESCRIPTIONS.T_POOL_BRIDGE_BURN = 'Bitcoin burn targeting a confidential-pool deployment. Reflection and minting are separate steps.';
+for (const name of ['T_CBTC_TAC_DEPOSIT','T_CBTC_TAC_FORCE_CLOSE','T_CTAC_LIEN_SPLIT']) OPCODE_DESCRIPTIONS[name] = 'Reserved in the current protocol; historical byte interpretation only.';
+OPCODE_DESCRIPTIONS.T_WRAPPER_ATTEST = 'Legacy issuer-signed reserves and supply attestation.';
+
 export function describeBadge(label: string | null | undefined): string {
   if (!label) return "";
   return OPCODE_DESCRIPTIONS[label] ?? OPCODE_DESCRIPTIONS[label.toUpperCase()] ?? "";
@@ -132,9 +140,7 @@ export function describeUnknownEnvelope(decodeError: string | null | undefined):
     return {
       label: `Unknown opcode ${m[1]}`,
       detail:
-        "Envelope wrapper parsed correctly but the opcode byte isn't defined in the v1 spec. " +
-        "Per SPEC §5 the indexer treats this as a no-op — it could be a future-spec opcode, " +
-        "a wallet bug, or someone testing the envelope path.",
+        "This explorer could not decode this opcode. Its presence alone does not establish protocol acceptance or rejection.",
       isForwardCompat: true,
     };
   }

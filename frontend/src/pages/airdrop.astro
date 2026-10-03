@@ -19,7 +19,8 @@ const totalSnapshotted = SOURCES.reduce((sum, s) => sum + s.balances.size, 0);
   description="Check if your Ethereum address is eligible for the Tacit airdrop based on the published snapshot."
 >
   <div class="airdrop-wrap">
-    <h1 class="airdrop-h1">Airdrop check</h1>
+    <h1 class="airdrop-h1">Bitcoin distribution snapshot</h1>
+    <p>This checker describes the May 2026 Bitcoin distribution. <a href="/airdrop/ethereum">Check the separate Ethereum TAC allocation →</a></p>
     <p class="airdrop-sub">
       Paste your Ethereum address (or ENS / .wei name) to see if it's on the published snapshot. {totalSnapshotted.toLocaleString()} addresses eligible.
     </p>
@@ -63,12 +64,12 @@ const totalSnapshotted = SOURCES.reduce((sum, s) => sum + s.balances.size, 0);
       Name resolution uses the name's current owner — if it was transferred after the snapshot, paste your snapshot-time 0x address directly to be sure.
     </div>
     <div class="airdrop-weight" data-slot="tac">—</div>
-    <div class="airdrop-weight-sub">your allocation</div>
+    <div class="airdrop-weight-sub">historical snapshot weight</div>
     <div class="airdrop-rank" data-slot="rank"></div>
     <div class="airdrop-flavor" data-slot="flavor">The heavens have recognized your roots ☯</div>
     <a class="airdrop-tweet" data-slot="tweet" target="_blank" rel="noreferrer" href="#">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
-      Tweet your allocation
+      Tweet historical snapshot weight
     </a>
     <details class="airdrop-details">
       <summary>Breakdown</summary>

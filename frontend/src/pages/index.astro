@@ -1,6 +1,6 @@
 ---
 import Layout from "../layouts/Layout.astro";
-import { getRecentEnvelopes, getCursor, getDuplicateTickers } from "../lib/queries";
+import { getRecentEnvelopes, getCursor, getDuplicateTickers, getRecentBlocks } from "../lib/queries";
 import { sql, desc, eq } from "drizzle-orm";
 import { db, schema } from "../db";
 import { shortHex, relativeTime, formatAmount, describeBadge, displayAssetName } from "../lib/format";
@@ -10,7 +10,7 @@ import AssetMark from "../components/AssetMark.astro";
 
 const network = import.meta.env.PUBLIC_NETWORK ?? "mainnet";
 
-const [recent, cursor, statsRow, recentAssets, tip, duplicates] = await Promise.all([
+const [recent, cursor, statsRow, recentAssets, tip, duplicates, recentBlocks] = await Promise.all([
   getRecentEnvelopes(10),
   getCursor(network),
   db.execute<{ assets: number; envelopes: number; cetch: number; t_petch: number; minted: string }>(sql`
@@ -29,6 +29,7 @@ const [recent, cursor, statsRow, recentAssets, tip, duplicates] = await Promise.
     .limit(10),
   fetchChainTip(),
   getDuplicateTickers(network),
+  getRecentBlocks(network, 10),
 ]);
 
 const s = statsRow[0] ?? { assets: 0, envelopes: 0, cetch: 0, t_petch: 0, minted: "0" };
@@ -264,6 +265,63 @@ const homeJsonLd = [
       <div class="card-footer">
         <a href="/assets">All assets →</a>
       </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:18px">
+    <div class="card-header">
+      <span>Latest blocks</span>
+      <a href="/blocks">view all →</a>
+    </div>
+    <table class="list">
+      <tbody>
+        {
+          recentBlocks.length === 0 ? (
+            <tr>
+              <td colspan="3" class="muted" style="text-align:center;padding:30px">
+                no blocks indexed yet
+              </td>
+            </tr>
+          ) : (
+            recentBlocks.map((b) => (
+              <tr>
+                <td class="icon-cell">
+                  <span class="opcode-icon">BLK</span>
+                </td>
+                <td>
+                  <div class="mono">{b.height.toLocaleString()}</div>
+                  <div class="muted" style="font-size:12px;margin-top:2px">
+                    <a
+                      href={`https://mempool.space/block/${b.blockHash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      class="mono"
+                    >
+                      {shortHex(b.blockHash, 10, 6)}
+                    </a>
+                  </div>
+                </td>
+                <td style="text-align:right">
+                  <div style="font-size:12px">
+                    {b.envelopeCount === 0 ? (
+                      <span class="muted">no envelopes</span>
+                    ) : (
+                      <>
+                        <strong>{b.envelopeCount}</strong>
+                        <span class="muted"> envelope{b.envelopeCount === 1 ? "" : "s"}</span>
+                      </>
+                    )}
+                  </div>
+                  <div class="muted" style="font-size:11px">{relativeTime(b.blockTime)}</div>
+                </td>
+              </tr>
+            ))
+          )
+        }
+      </tbody>
+    </table>
+    <div class="card-footer">
+      <a href="/blocks">All blocks →</a>
     </div>
   </div>
 </Layout>

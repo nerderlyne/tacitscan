@@ -168,7 +168,7 @@ const HISTORY_PAGE_SIZE = 20;
 // won't have a hit here — the page surfaces them as "details pending
 // next refresh" so users still see the fulfilled-batch row with its
 // timestamp + recipient count, just not the bc1q list.
-type StaticRecipient = { i: number; a: string | null; v: string | null };
+type StaticRecipient = { i: number; a: string | null; v?: string | null };
 const HISTORY_RECIPIENT_MAP = new Map<string, StaticRecipient[]>();
 for (const b of airdropHistory.batches) {
   if (b.reveal) HISTORY_RECIPIENT_MAP.set(String(b.reveal).toLowerCase(), b.recipients);

@@ -57,10 +57,11 @@ Bitcoin data flows in via two interchangeable backends:
 The indexer is a tip-following block walker (Ponder-shaped: cursor table,
 per-opcode handlers, idempotent upserts on PK). Decoded envelopes are
 written into Postgres with their raw bytes preserved for later inspection.
-Verification of rangeproofs and Schnorr signatures is intentionally
-**not** done at index time — explorers store and present, they don't gate
-spending. A future job can batch-verify in the background if you want
-that signal in the UI.
+Parsing and protocol acceptance are separate. The legacy mint checks remain;
+the opt-in accepted-state worker uses the pinned upstream validator and proof
+replay services in `runtime/`. EVM indexing covers public events and successful
+protocol calls. See [protocol rollout](docs/protocol-rollout.md) for the feature
+flags, required archive RPC methods, staging replay and readiness gate.
 
 The frontend is Astro SSR. Pages query Postgres directly via Drizzle and
 ship as static-feeling HTML. Two interactive bits — the search bar and
@@ -72,7 +73,7 @@ the live recent-envelopes feed — are vanilla `<script>` islands.
 
 You need:
 
-- Node 20+
+- Node 24+
 - pnpm (or npm)
 - A Postgres URL. The fastest path is a free [Neon](https://neon.tech) project.
 
@@ -118,35 +119,34 @@ pnpm dev                # http://localhost:4321
 
 ## Deploy
 
-Everything runs on **Render** from a single `render.yaml` Blueprint:
-the frontend (Astro SSR web service), the indexer (worker), and a managed
-Postgres they share.
+The `render.yaml` Blueprint uses the existing frontend, indexer worker and
+explorer database. The worker runs canonical replay and pool verification as
+supervised child processes with localhost-only endpoints. Canonical state uses
+the `tacitscan_canonical` Postgres schema; pool SQLite uses the worker disk.
+Both services track `main` and deploy on commits.
 
-1. New Render **Blueprint** → point it at this repo. It provisions all three:
-   `tacitscan-db` (Postgres), `tacitscan-frontend` (web), `tacitscan-indexer`
-   (worker). `DATABASE_URL` is wired into both services from the DB
-   automatically — no secret to copy.
-2. When prompted, set the one `sync: false` secret:
-   - `BITCOIN_RPC_URL` — a dRPC URL. This is the primary/fast path: backfills
-     the ~8k-block Tacit range in ~1–3 h (one `getblock` per block). Leave it
-     blank to run on the free Esplora endpoints (mempool.space / blockstream)
-     instead — correct, but ~1–2 days.
-3. Apply. The frontend binds Render's `PORT`; the indexer runs migrations then
-   the block walker (`pnpm start`).
+Before the first release, enable Blueprint **Auto Sync** and create the Render
+environment group `tacitscan-parity-secrets` with `RPC_ETH`, `RPC_BASE`, `RPC_ROBINHOOD` and a reviewed
+`BTC_POOL_CHECKPOINT`. These match the names accepted in the local `.env`.
+Ethereum needs historical call tracing. Credentials stay in Render.
 
-**Adding services requires re-syncing the Blueprint** — plain `git push`
-autoDeploys *existing* services but won't create the new DB/worker or pick up
-new env vars. Open the Blueprint in Render and "Apply" once after this change.
+The indexer automatically migrates and resumes historical repair before live
+ingestion. Protocol views activate only after a fresh readiness report passes;
+existing Bitcoin pages remain available while indexes catch up. Worker deployments
+stop the old writer before starting the new one. The worker compute upgrade and persistent disk incur Render charges; monitor
+worker memory and database capacity as history grows.
 
-Managed Postgres (`tacitscan-db`) is `basic-256mb`; the Tacit-only dataset is
-well under 1 GB. Bump the plan in the Blueprint if you outgrow it.
+See [the rollout guide](docs/protocol-rollout.md#push-to-main-deployment) for
+first-release staging/backup requirements, exact configuration, and rollback.
 
 ---
 
 ## What's indexed
 
-Every Tacit envelope opcode defined in
-[SPEC.md §5](https://github.com/z0r0z/tacit/blob/main/SPEC.md):
+The original Bitcoin views cover the following envelope families. The opt-in
+protocol extension is pinned to Tacit `7a917a8e`; see
+[coverage and rollout](docs/protocol-rollout.md) for current families, chain
+indexing, validation boundaries, and deployment instructions.
 
 | opcode      | hex   | shown                                             |
 | ----------- | ----- | ------------------------------------------------- |
@@ -171,18 +171,20 @@ Page set:
 
 ---
 
-## Tradeoffs you may want to revisit
+## Protocol extensions
 
-- **No verification at index time.** Saves CPU and avoids needing a JS
-  bulletproof library. If you want a "valid ✓" badge on each envelope,
-  add a worker that batch-verifies and writes a `verified_at` column.
-- **Esplora as RPC.** Public mempool.space and blockstream.info are free
-  but rate-limited. For heavy backfill, swap in a paid Esplora endpoint
-  (QuickNode, GetBlock) by changing `ESPLORA_URL`.
-- **Schema duplicated across two subdirs.** Pragmatic given the brief
-  asked for two clean subdirs. Promote to a pnpm workspace shared package
-  if drift becomes a problem.
-- **Tip-only reorg handling.** We index at depth `CONFIRMATION_DEPTH=3`
-  and walk back one block on parent-hash mismatch. Reorgs deeper than
-  this depth would require richer chain-tracking and are out of v1 scope.
-- **No mempool view.** Only confirmed envelopes are surfaced.
+- `/protocol` reports index checkpoints, reference freshness and the parity readiness gate.
+- `/protocol/activity`, `/protocol/assets`, `/protocol/pools`, `/protocol/farms`,
+  `/protocol/bridge`, `/protocol/collateral`, `/protocol/secret-sats`, `/protocol/locks` expose public
+  protocol observations and sourced state.
+- `/protocol/tx/:chain/:txid` displays every indexed envelope or contract log.
+- `/airdrop/ethereum` verifies published Ethereum allocations and optionally reads
+  current claim status. `/airdrop` preserves the historical Bitcoin snapshot.
+
+New indexers and navigation default to disabled. Decoding is not proof validation;
+reference snapshots are labelled with provenance. The existing mint validators
+check only their documented predicates. No hidden amounts or ownership are inferred.
+
+Run `node scripts/sync-protocol.mjs --check` from the repository root to check
+shared schema/operation definitions. Deployment and replay are explicit operational
+steps; see [the runbook](docs/protocol-rollout.md).

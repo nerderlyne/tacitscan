@@ -1,0 +1,10 @@
+---
+interface Props {value:Record<string,unknown>}
+const {value}=Astro.props;
+const isPublicId=(v:unknown)=>typeof v==='string'&&/^(0x)?[0-9a-f]{40,66}$/i.test(v);
+const scalars=Object.entries(value??{}).filter(([,v])=>v===null||typeof v!=='object');
+---
+<dl class="kv">
+  {scalars.map(([k,v])=><><dt>{k.replaceAll('_',' ')}</dt><dd class="mono" style="overflow-wrap:anywhere">{isPublicId(v)?<a href={`/protocol/activity?q=${encodeURIComponent(String(v))}`}>{String(v)}</a>:v===null?'—':String(v)}</dd></>)}
+</dl>
+<details><summary>All public fields</summary><pre style="overflow:auto;max-height:400px;font-size:12px">{JSON.stringify(value,null,2)}</pre></details>

@@ -1,3 +1,5 @@
+# Requires existing Render environment group tacitscan-parity-secrets.
+# See docs/protocol-rollout.md for its values and first-release setup.
 databases:
   - name: tacitscan-db
     databaseName: tacitscan
@@ -15,7 +17,8 @@ services:
     buildCommand: pnpm install --frozen-lockfile && pnpm build
     startCommand: pnpm start
     healthCheckPath: /api/live
-    autoDeploy: true
+    branch: main
+    autoDeployTrigger: commit
     envVars:
       - key: NODE_VERSION
         value: "24"
@@ -27,16 +30,29 @@ services:
         value: tacitscan
       - key: PUBLIC_NETWORK
         value: mainnet
+      - key: PARITY_UI_ENABLED
+        value: "true"
+      - key: PARITY_REQUIRE_READY
+        value: "true"
+      - key: RPC_ETH
+        fromService:
+          type: worker
+          name: tacitscan-indexer
+          envVarKey: RPC_ETH
 
   - type: worker
     name: tacitscan-indexer
-    runtime: node
-    plan: starter
+    runtime: docker
+    plan: standard
     region: ohio
-    rootDir: indexer
-    buildCommand: pnpm install --frozen-lockfile && pnpm build
-    startCommand: pnpm start
-    autoDeploy: true
+    dockerfilePath: ./runtime/Dockerfile.worker
+    dockerContext: .
+    disk:
+      name: tacitscan-writer
+      mountPath: /var/data
+      sizeGB: 10
+    branch: main
+    autoDeployTrigger: commit
     envVars:
       - key: NODE_VERSION
         value: "24"
@@ -46,6 +62,16 @@ services:
           property: connectionString
       - key: BITCOIN_NETWORK
         value: mainnet
+      - key: PARITY_INDEXING_ENABLED
+        value: "true"
+      - key: EVM_INDEXING_ENABLED
+        value: "true"
+      - key: REFERENCE_INDEXING_ENABLED
+        value: "true"
+      - key: ACCEPTED_STATE_ENABLED
+        value: "true"
+      - key: EVM_REQUIRE_CALL_TRACES
+        value: "true"
       - key: START_HEIGHT
         value: "948241"
       - key: CONFIRMATION_DEPTH
@@ -54,3 +80,14 @@ services:
         value: https://mempool.space/api
       - key: ESPLORA_FALLBACK_URL
         value: https://blockstream.info/api
+      - key: AUTO_PROTOCOL_REPLAY
+        value: "true"
+      - key: TACIT_REFERENCE_URL
+        value: http://127.0.0.1:8787
+      - key: BTC_POOL_REFERENCE_URL
+        value: http://127.0.0.1:8788
+      - key: BTC_POOL_DB
+        value: /var/data/pool.db
+      - key: BTC_POOL_START_HEIGHT
+        value: "948241"
+      - fromGroup: tacitscan-parity-secrets

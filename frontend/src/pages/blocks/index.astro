@@ -1,0 +1,119 @@
+---
+import Layout from "../../layouts/Layout.astro";
+import { getBlocksPage, getBlocksCount } from "../../lib/queries";
+import { shortHex, relativeTime } from "../../lib/format";
+
+const network = import.meta.env.PUBLIC_NETWORK ?? "mainnet";
+const page = Math.max(0, Number(Astro.url.searchParams.get("p") ?? 0));
+const PAGE = 50;
+
+const [rows, total] = await Promise.all([
+  getBlocksPage(network, { limit: PAGE, offset: page * PAGE }),
+  getBlocksCount(network),
+]);
+
+const totalPages = Math.max(1, Math.ceil(total / PAGE));
+const currentPage = Math.min(page, totalPages - 1);
+
+function withPage(p: number) {
+  return p > 0 ? `/blocks?p=${p}` : "/blocks";
+}
+
+function buildPageList(current: number, totalP: number, window = 2): (number | "…")[] {
+  if (totalP <= 7) return Array.from({ length: totalP }, (_, i) => i);
+  const set = new Set<number>([0, totalP - 1, current]);
+  for (let d = 1; d <= window; d++) {
+    if (current - d >= 0) set.add(current - d);
+    if (current + d <= totalP - 1) set.add(current + d);
+  }
+  const sorted = [...set].sort((a, b) => a - b);
+  const out: (number | "…")[] = [];
+  for (let i = 0; i < sorted.length; i++) {
+    if (i > 0 && sorted[i]! - sorted[i - 1]! > 1) out.push("…");
+    out.push(sorted[i]!);
+  }
+  return out;
+}
+const pages = buildPageList(currentPage, totalPages);
+---
+
+<Layout
+  title="blocks · tacitscan"
+  description={`Recent Bitcoin blocks indexed by tacitscan with their confirmed Tacit envelope counts. ${total.toLocaleString()} blocks walked.`}
+>
+  <h1>Blocks</h1>
+  <p class="muted">
+    {total.toLocaleString()} blocks walked by the indexer, newest first. Each row shows
+    the count of confirmed Tacit envelopes that landed in that block. Block hashes link
+    out to mempool.space.
+  </p>
+
+  <div class="card" style="padding:0">
+    <table class="list">
+      <thead>
+        <tr>
+          <th style="width:120px">height</th>
+          <th>block hash</th>
+          <th style="width:130px;text-align:right">envelopes</th>
+          <th style="width:110px">when</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.length === 0 ? (
+          <tr>
+            <td colspan="4" class="muted" style="text-align:center;padding:30px">
+              no blocks indexed yet
+            </td>
+          </tr>
+        ) : (
+          rows.map((b) => (
+            <tr>
+              <td class="mono">{b.height.toLocaleString()}</td>
+              <td>
+                <a
+                  href={`https://mempool.space/block/${b.blockHash}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  class="mono"
+                >
+                  {shortHex(b.blockHash, 16, 8)}
+                </a>
+              </td>
+              <td style="text-align:right">
+                {b.envelopeCount === 0 ? (
+                  <span class="muted">—</span>
+                ) : (
+                  <strong>{b.envelopeCount.toLocaleString()}</strong>
+                )}
+              </td>
+              <td class="muted">{relativeTime(b.blockTime)}</td>
+            </tr>
+          ))
+        )}
+      </tbody>
+    </table>
+  </div>
+
+  {totalPages > 1 && (
+    <nav class="pager" aria-label="pagination" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:18px;">
+      {currentPage > 0 && (
+        <a href={withPage(currentPage - 1)} class="pager-page" rel="prev">← prev</a>
+      )}
+      {pages.map((p) => p === "…" ? (
+        <span class="pager-gap">…</span>
+      ) : (
+        <a
+          href={withPage(p)}
+          class={`pager-page ${p === currentPage ? "pager-current" : ""}`}
+          aria-current={p === currentPage ? "page" : undefined}
+        >{p + 1}</a>
+      ))}
+      {currentPage < totalPages - 1 && (
+        <a href={withPage(currentPage + 1)} class="pager-page" rel="next">next →</a>
+      )}
+      <span class="muted" style="font-size:12px;margin-left:8px;">
+        page {currentPage + 1} of {totalPages.toLocaleString()} · {total.toLocaleString()} blocks
+      </span>
+    </nav>
+  )}
+</Layout>

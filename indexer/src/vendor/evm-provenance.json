@@ -1,0 +1,81 @@
+{
+  "revision": "7a917a8ec4dad72210351d80bcbf269073ac790d",
+  "sources": {
+    "ConfidentialPool": {
+      "path": "contracts/src/ConfidentialPool.sol",
+      "sha256": "9710893919f40391c0ce0bff2a425d268a744cd54701d9c641e237bc2b47554e"
+    },
+    "CollateralEngine": {
+      "path": "contracts/src/CollateralEngine.sol",
+      "sha256": "67f8c3049fc81ca5e047efe4f49548ca98da35315aa7bb02e518402ba1416559"
+    },
+    "BtcCallExecutor": {
+      "path": "contracts/src/BtcCallExecutor.sol",
+      "sha256": "08cc906f8278f900e8e6456a60df96142360b5df6019ff7cbc8b15a73793d2cf"
+    },
+    "EthCallOutbox": {
+      "path": "contracts/src/EthCallOutbox.sol",
+      "sha256": "edf654e52e8f35f8e241e13e1a85e30ccb0d43496d239329a88deeba68ca37ac"
+    },
+    "BitcoinLightRelay": {
+      "path": "contracts/src/lib/BitcoinLightRelay.sol",
+      "sha256": "ad0c6db0d63617585e13c40aa23fa8f4c700edde9cd9719cf8312c69934e281b"
+    },
+    "CbtcEscrowHelper": {
+      "path": "contracts/src/CbtcEscrowHelper.sol",
+      "sha256": "a8ae6191787e6549ff990956d237b10e50347c6ea51a2e5dcf48ecd27e1fb741"
+    },
+    "FarmManager": {
+      "path": "contracts/src/FarmManager.sol",
+      "sha256": "39186a0e7889f1465d265bc46ec9951603d96cfcf8db73c2da01d7581d780fca"
+    },
+    "WrappedTac": {
+      "path": "contracts/src/WrappedTac.sol",
+      "sha256": "34a6817da8d718729c38db4ebfe1f26c96380f3d860924136f778b89f35dc29c"
+    },
+    "TacAirdrop": {
+      "path": "contracts/src/TacAirdrop.sol",
+      "sha256": "843b1f5638b662a913c5c9045482c9156ea649041ee9b82b470a3ab55a7d9cb4"
+    },
+    "TacitEvmPool": {
+      "path": "contracts/src/TacitEvmPool.sol",
+      "sha256": "cb251bf0d04e4cd87939cc59b980750e42b9b21a7fc814f337fd53306e6ff359"
+    },
+    "TacitPublicAmm": {
+      "path": "contracts/src/TacitPublicAmm.sol",
+      "sha256": "135d5607d774427b2e2179429287bbb9deacf7147297ab78f121a05ea67ecac5"
+    },
+    "CanonicalAssetFactory": {
+      "path": "contracts/src/CanonicalAssetFactory.sol",
+      "sha256": "238ed46c836b62e445eafe0740c386b69ea083b5f169c46e96c2d27161920f20"
+    },
+    "ConfidentialRouter": {
+      "path": "contracts/src/ConfidentialRouter.sol",
+      "sha256": "6999e214228089cb528b96068e831d5dd7274c473e66f0466b70a3a61f671f1f"
+    },
+    "TacitRelayer": {
+      "path": "contracts/src/TacitRelayer.sol",
+      "sha256": "370b579c743ad65ac514b606d36e1360fa8a8e8e6fa49105b92de5070e206000"
+    },
+    "TacBuyback": {
+      "path": "contracts/src/TacBuyback.sol",
+      "sha256": "fa1f09ced7c696e418f95ef36b9c61158eda16daff8dddd7dca2b471fe4ec29b"
+    },
+    "TacitEvmPoolRouter": {
+      "path": "contracts/src/TacitEvmPoolRouter.sol",
+      "sha256": "ec2a01492db55528d6af3157e08ebd0d2b77831319a26f42e0046a2f83effd98"
+    },
+    "CbtcEscrowHelperTipForwarder": {
+      "path": "contracts/src/CbtcEscrowHelperTipForwarder.sol",
+      "sha256": "7474cee7ec2d04eea600fdf061633f4b12a6d997593f4006f3ef3def6b56fae1"
+    },
+    "CanonicalBridgedERC20": {
+      "path": "contracts/src/CanonicalBridgedERC20.sol",
+      "sha256": "f8baaed929db9aec6b3601191b60b9247abfeae02a1242b1020a5490543f0176"
+    },
+    "calldata": {
+      "path": "dapp/confidential-lock-scan.js",
+      "sha256": "34af222fdca2e3d59d6b707e45feb77479694ed4971b754ff299e48e5e3c7a5d"
+    }
+  }
+}

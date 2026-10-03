@@ -1,3 +1,6 @@
+import { PROTOCOL_REVISION, DECODER_VERSION } from './protocol.js';
+import { persistObservations } from './observations.js';
+import { clearParentCache } from './validator.js';
 // Cursor-driven block walker. Pattern is intentionally close to Ponder:
 //   - tracks last_indexed_height per network
 //   - polls a Bitcoin data source for new blocks
@@ -13,7 +16,7 @@
 //   lets the UI show "this tx was reorged out" for users following links.
 //   Re-inclusion (same tx in a new block) cleanly upserts back to
 //   'confirmed' via handlers.ts envelopeConfirmSet.
-import { and, eq, gt } from "drizzle-orm";
+import { and, eq, gt, sql } from "drizzle-orm";
 import { db, schema } from "./db.js";
 import { hexToBytes, tryDecodeFromWitness, type DecodeResult } from "./envelope.js";
 import { EsploraClient, type EsploraTx } from "./esplora.js";
@@ -55,8 +58,9 @@ interface Config {
 
 export function loadConfig(): Config {
   const network = process.env.BITCOIN_NETWORK ?? "mainnet";
+  if (!["mainnet","signet"].includes(network)) throw new Error("Unsupported BITCOIN_NETWORK");
   const rpcUrls = resolveRpcUrls(network);
-  const esploraUrl = process.env.ESPLORA_URL ?? "https://mempool.space/api";
+  const esploraUrl = process.env.ESPLORA_URL ?? (network === "signet" ? "https://mempool.space/signet/api" : "https://mempool.space/api");
   const esploraFallback = process.env.ESPLORA_FALLBACK_URL || undefined;
   const maestroUrl = process.env.MAESTRO_URL ?? "https://xbt-mainnet.gomaestro-api.org/v0";
   const maestroApiKey = process.env.MAESTRO_API_KEY || undefined;
@@ -72,6 +76,9 @@ export function loadConfig(): Config {
   // re-process huge ranges; Bitcoin hasn't seen a >5-block reorg since
   // 2013, so 20 is comfortably generous.
   const maxReorgDepth = Number(process.env.MAX_REORG_DEPTH ?? 20);
+  for (const [name,value] of Object.entries({startHeight,confirmationDepth,tipPollSec,backfillBatch,maxReorgDepth})) {
+    if(!Number.isSafeInteger(value) || value < (name==='startHeight'?0:1)) throw new Error(`Invalid indexer setting ${name}`);
+  }
   return {
     network,
     rpcUrls,
@@ -114,7 +121,7 @@ function buildSource(cfg: Config): BitcoinDataSource {
   // to the next on throw.
   const fallbacks: BitcoinDataSource[] = [];
   if (cfg.rpcUrls.length) fallbacks.push(new BitcoinRpcClient(cfg.rpcUrls));
-  if (cfg.maestroApiKey) {
+  if (cfg.maestroApiKey && (cfg.network === "mainnet" || process.env.MAESTRO_URL)) {
     fallbacks.push(
       new EsploraClient(
         cfg.maestroUrl,
@@ -139,13 +146,6 @@ async function getOrInitCursor(network: string, startHeight: number): Promise<{ 
     lastIndexedBlockHash: "",
   });
   return { height: startHeight - 1, hash: "" };
-}
-
-async function setCursor(network: string, height: number, hash: string): Promise<void> {
-  await db
-    .update(schema.cursor)
-    .set({ lastIndexedHeight: height, lastIndexedBlockHash: hash, updatedAt: new Date() })
-    .where(eq(schema.cursor.network, network));
 }
 
 // Walk back through our `blocks` table comparing each recorded hash to
@@ -177,25 +177,33 @@ async function findCommonAncestor(
 // Envelope rows are kept so the UI can still surface their pages — the
 // chain_status flips back to 'confirmed' if/when the same tx is re-included.
 async function rewindTo(network: string, ancestorHeight: number): Promise<void> {
+  clearParentCache();
   await db.transaction(async (t) => {
+    await t.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${network}),81420)`);
+    const ancestor = await t.select().from(schema.blocks).where(and(eq(schema.blocks.network,network),eq(schema.blocks.height,ancestorHeight))).limit(1);
+    await t.update(schema.cursor).set({lastIndexedHeight:ancestorHeight,lastIndexedBlockHash:ancestor[0]?.blockHash??"",updatedAt:new Date()}).where(eq(schema.cursor.network,network));
     await t
       .update(schema.envelopes)
       .set({ chainStatus: "orphaned" })
       .where(and(eq(schema.envelopes.network, network), gt(schema.envelopes.blockHeight, ancestorHeight)));
+    await t.delete(schema.commitments).where(and(eq(schema.commitments.network,network),gt(schema.commitments.blockHeight,ancestorHeight)));
+    await t.delete(schema.assets).where(and(eq(schema.assets.network,network),gt(schema.assets.etchHeight,ancestorHeight)));
+    await t.delete(schema.txAddresses).where(sql`${schema.txAddresses.network}=${network} AND ${schema.txAddresses.txid} IN (SELECT txid FROM envelopes WHERE network=${network} AND chain_status='orphaned')`);
+    await t.execute(sql`UPDATE envelopes SET commitment_valid=NULL,commitment_checked_at=NULL,issuer_sig_valid=NULL,issuer_sig_checked_at=NULL WHERE network=${network} AND block_height>${ancestorHeight}`);
+    // Reorg cleanup also runs while new observation ingestion is disabled.
+    if((await t.execute(sql`SELECT to_regclass('protocol_scan_windows') AS name`))[0]?.name) {
+      await t.execute(sql`UPDATE protocol_envelopes SET chain_status='orphaned',validation_status='unchecked',validation_evidence=NULL WHERE network=${network} AND block_height>${ancestorHeight}`);
+      await t.execute(sql`DELETE FROM protocol_scan_windows WHERE source=${'bitcoin:'+network} AND last_height>${ancestorHeight}`);
+      await t.execute(sql`DELETE FROM protocol_validation_jobs WHERE network=${network} AND block_height>${ancestorHeight}`);
+      await t.execute(sql`DELETE FROM protocol_outputs WHERE network=${network} AND block_height>${ancestorHeight}`);
+      await t.execute(sql`DELETE FROM protocol_spends WHERE network=${network} AND block_height>${ancestorHeight}`);
+      await t.execute(sql`UPDATE protocol_cursors SET height=${ancestorHeight},block_hash=${ancestor[0]?.blockHash??''},updated_at=now() WHERE source=${'bitcoin:'+network}`);
+    }
     await t
       .delete(schema.blocks)
       .where(and(eq(schema.blocks.network, network), gt(schema.blocks.height, ancestorHeight)));
   });
-}
-
-async function recordBlock(network: string, height: number, hash: string, blockTime: Date): Promise<void> {
-  await db
-    .insert(schema.blocks)
-    .values({ network, height, blockHash: hash, blockTime })
-    .onConflictDoUpdate({
-      target: [schema.blocks.network, schema.blocks.height],
-      set: { blockHash: hash, blockTime, processedAt: new Date() },
-    });
+  clearParentCache();
 }
 
 // Harvest P2TR addresses from a confirmed tacit tx and persist them
@@ -249,11 +257,12 @@ async function indexTxAddresses(
   await db.insert(schema.txAddresses).values(rows).onConflictDoNothing();
 }
 
-async function processBlock(
+export async function processBlock(
   source: BitcoinDataSource,
   network: string,
   height: number,
   expectedPrevHash: string,
+  advanceCursor = true,
 ): Promise<{ blockHash: string; processed: number; reorg: boolean }> {
   const block = await source.fetchBlock(height);
 
@@ -267,11 +276,18 @@ async function processBlock(
 
   const blockTime = new Date(block.timestamp * 1000);
   let processed = 0;
+  const addresses: EsploraTx[] = [];
+  await db.transaction(async (transaction) => {
+  const writer = transaction as unknown as typeof db;
+  await writer.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${network}),81420)`);
+  if(advanceCursor) {
+    const current=await writer.select().from(schema.cursor).where(eq(schema.cursor.network,network)).limit(1);
+    if(!current[0] || current[0].lastIndexedHeight!==height-1 || current[0].lastIndexedBlockHash!==expectedPrevHash) throw new Error('Bitcoin cursor changed in another worker');
+  }
   for (let txIndex = 0; txIndex < block.txs.length; txIndex++) {
     const tx = block.txs[txIndex]!;
     const envelopeResult = decodeTacit(tx);
-    if (!envelopeResult) continue;
-    const { result, rawWitness } = envelopeResult;
+
     const ctx: TxCtx = {
       network,
       height,
@@ -283,21 +299,37 @@ async function processBlock(
       outputCount: tx.vout.length,
       feeSats: tx.fee == null ? null : BigInt(tx.fee),
     };
-    try {
-      await persistEnvelope(db, tx, ctx, result, rawWitness);
-      // Fire-and-forget address index — failure here doesn't block the
-      // envelope from landing. tx_addresses is purely for the /address
-      // page's interaction log; a missing row degrades that page but
-      // doesn't affect protocol correctness.
-      indexTxAddresses(source, network, tx).catch((e) =>
-        console.warn(`[addresses] tx=${tx.txid}: ${(e as Error).message}`),
-      );
-      processed++;
-    } catch (e) {
-      console.error(`[${network}] failed to persist envelope tx=${tx.txid}:`, e);
+    if (process.env.PARITY_INDEXING_ENABLED === 'true') {
+      await persistObservations(writer, tx, ctx);
+    }
+    if (!envelopeResult) continue;
+    const { result, rawWitness } = envelopeResult;
+    await writer.delete(schema.commitments).where(and(eq(schema.commitments.network,network),eq(schema.commitments.txid,tx.txid)));
+    await persistEnvelope(writer, tx, ctx, result, rawWitness);
+    addresses.push(tx);
+    processed++;
+  }
+  if (process.env.PARITY_INDEXING_ENABLED === 'true') {
+    // Batched source-outpoint lookup covers ordinary spends and same-block outputs.
+    const inputs = block.txs.flatMap(tx => tx.vin.filter(v=>!v.is_coinbase).map(v=>({txid:v.txid,vout:v.vout,spending:tx.txid})));
+    for (let i=0;i<inputs.length;i+=2000) {
+      await writer.execute(sql`INSERT INTO protocol_spends(network,source_txid,source_vout,spending_txid,block_height,block_hash)
+        SELECT ${network},i.txid,i.vout,i.spending,${height},${block.hash}
+        FROM jsonb_to_recordset(${JSON.stringify(inputs.slice(i,i+2000))}::jsonb) AS i(txid text,vout integer,spending text)
+        WHERE EXISTS(SELECT 1 FROM commitments c WHERE c.network=${network} AND c.txid=i.txid AND c.vout=i.vout)
+          OR EXISTS(SELECT 1 FROM protocol_outputs o WHERE o.network=${network} AND o.txid=i.txid AND o.vout=i.vout)
+          OR EXISTS(SELECT 1 FROM protocol_validation_jobs j WHERE j.network=${network} AND j.txid=i.txid AND j.vout=i.vout)
+        ON CONFLICT(network,source_txid,source_vout) DO UPDATE SET spending_txid=EXCLUDED.spending_txid,block_height=EXCLUDED.block_height,block_hash=EXCLUDED.block_hash`);
     }
   }
-  await recordBlock(network, height, block.hash, blockTime);
+  await writer.insert(schema.blocks).values({network,height,blockHash:block.hash,blockTime})
+    .onConflictDoUpdate({target:[schema.blocks.network,schema.blocks.height],set:{blockHash:block.hash,blockTime,processedAt:new Date()}});
+  if (process.env.PARITY_INDEXING_ENABLED==='true') await writer.execute(sql`INSERT INTO protocol_scan_windows(source,first_height,last_height,block_hash,revision,decoder_version) VALUES(${'bitcoin:'+network},${height},${height},${block.hash},${PROTOCOL_REVISION},${DECODER_VERSION}) ON CONFLICT(source,first_height,last_height) DO UPDATE SET block_hash=EXCLUDED.block_hash,revision=EXCLUDED.revision,decoder_version=EXCLUDED.decoder_version,completed_at=now()`);
+  if (advanceCursor && process.env.PARITY_INDEXING_ENABLED==='true') await writer.execute(sql`INSERT INTO protocol_cursors(source,height,block_hash) VALUES(${'bitcoin:'+network},${height},${block.hash}) ON CONFLICT(source) DO UPDATE SET height=EXCLUDED.height,block_hash=EXCLUDED.block_hash,updated_at=now(),error=NULL`);
+  if (advanceCursor) await writer.update(schema.cursor).set({lastIndexedHeight:height,lastIndexedBlockHash:block.hash,updatedAt:new Date()}).where(eq(schema.cursor.network,network));
+  });
+  // Address enrichment is optional and cannot hold the canonical block transaction open.
+  for (const tx of addresses) await indexTxAddresses(source,network,tx).catch(e=>console.warn(`[addresses] ${tx.txid}: ${e.message}`));
   return { blockHash: block.hash, processed, reorg: false };
 }
 
@@ -366,12 +398,12 @@ export async function runIndexer(): Promise<never> {
             where: and(eq(schema.blocks.network, cfg.network), eq(schema.blocks.height, ancestor)),
           });
           cursor = { height: ancestor, hash: ancestorRow?.blockHash ?? "" };
-          await setCursor(cfg.network, cursor.height, cursor.hash);
+
           break;
         }
         totalProcessed += processed;
         cursor = { height: h, hash: blockHash };
-        await setCursor(cfg.network, h, blockHash);
+
       }
 
       const took = ((Date.now() - startedAt) / 1000).toFixed(1);
@@ -386,6 +418,7 @@ export async function runIndexer(): Promise<never> {
         `[${cfg.network}] walker iteration failed at height ${cursor.height + 1}, retrying after backoff: ${(e as Error).message}`,
       );
       await sleep(cfg.tipPollSec * 1000);
+      cursor = await getOrInitCursor(cfg.network,cfg.startHeight).catch(()=>cursor);
     }
   }
 }

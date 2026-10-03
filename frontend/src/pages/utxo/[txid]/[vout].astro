@@ -1,4 +1,5 @@
 ---
+import { protocolOutput } from "../../../lib/protocol-queries";
 import Layout from "../../../layouts/Layout.astro";
 import AssetMark from "../../../components/AssetMark.astro";
 import { getCommitment, getDuplicateTickers } from "../../../lib/queries";
@@ -10,6 +11,8 @@ const v = Number(vout);
 if (!Number.isInteger(v) || v < 0) return Astro.redirect("/");
 const row = await getCommitment(txid, v);
 if (!row) {
+  const observed=await protocolOutput(txid,v);
+  if(observed.data) return Astro.redirect(`/protocol/output/${txid}/${v}`);
   Astro.response.status = 404;
   return new Response(`No Tacit commitment at ${txid}:${v}`, { status: 404 });
 }

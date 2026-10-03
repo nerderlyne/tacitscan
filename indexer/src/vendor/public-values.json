@@ -1,0 +1,414 @@
+[
+  {
+    "name": "values",
+    "type": "tuple",
+    "components": [
+      {
+        "name": "version",
+        "type": "uint16"
+      },
+      {
+        "name": "chainBinding",
+        "type": "bytes32"
+      },
+      {
+        "name": "spendRoot",
+        "type": "bytes32"
+      },
+      {
+        "name": "nullifiers",
+        "type": "bytes32[]"
+      },
+      {
+        "name": "leaves",
+        "type": "bytes32[]"
+      },
+      {
+        "name": "depositsConsumed",
+        "type": "bytes32[]"
+      },
+      {
+        "name": "withdrawals",
+        "type": "tuple[]",
+        "components": [
+          {
+            "name": "assetId",
+            "type": "bytes32"
+          },
+          {
+            "name": "recipient",
+            "type": "address"
+          },
+          {
+            "name": "value",
+            "type": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "fees",
+        "type": "tuple[]",
+        "components": [
+          {
+            "name": "assetId",
+            "type": "bytes32"
+          },
+          {
+            "name": "value",
+            "type": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "bitcoinBurnsConsumed",
+        "type": "bytes32[]"
+      },
+      {
+        "name": "crossOuts",
+        "type": "tuple[]",
+        "components": [
+          {
+            "name": "destChain",
+            "type": "uint16"
+          },
+          {
+            "name": "destCommitment",
+            "type": "bytes32"
+          },
+          {
+            "name": "nullifier",
+            "type": "bytes32"
+          },
+          {
+            "name": "assetId",
+            "type": "bytes32"
+          },
+          {
+            "name": "claimId",
+            "type": "bytes32"
+          }
+        ]
+      },
+      {
+        "name": "bitcoinRootsUsed",
+        "type": "bytes32[]"
+      },
+      {
+        "name": "bitcoinSpentRoot",
+        "type": "bytes32"
+      },
+      {
+        "name": "bitcoinBurnRoot",
+        "type": "bytes32"
+      },
+      {
+        "name": "swaps",
+        "type": "tuple[]",
+        "components": [
+          {
+            "name": "poolId",
+            "type": "bytes32"
+          },
+          {
+            "name": "reserveAPre",
+            "type": "uint256"
+          },
+          {
+            "name": "reserveBPre",
+            "type": "uint256"
+          },
+          {
+            "name": "reserveAPost",
+            "type": "uint256"
+          },
+          {
+            "name": "reserveBPost",
+            "type": "uint256"
+          },
+          {
+            "name": "cutA",
+            "type": "uint256"
+          },
+          {
+            "name": "cutB",
+            "type": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "liquidity",
+        "type": "tuple[]",
+        "components": [
+          {
+            "name": "poolId",
+            "type": "bytes32"
+          },
+          {
+            "name": "reserveAPre",
+            "type": "uint256"
+          },
+          {
+            "name": "reserveBPre",
+            "type": "uint256"
+          },
+          {
+            "name": "sharesPre",
+            "type": "uint256"
+          },
+          {
+            "name": "reserveAPost",
+            "type": "uint256"
+          },
+          {
+            "name": "reserveBPost",
+            "type": "uint256"
+          },
+          {
+            "name": "sharesPost",
+            "type": "uint256"
+          }
+        ]
+      },
+      {
+        "name": "deadline",
+        "type": "uint64"
+      },
+      {
+        "name": "lockSetRoot",
+        "type": "bytes32"
+      },
+      {
+        "name": "lockLeaves",
+        "type": "bytes32[]"
+      },
+      {
+        "name": "lockNullifiers",
+        "type": "bytes32[]"
+      },
+      {
+        "name": "adaptorClaimS",
+        "type": "bytes32[]"
+      },
+      {
+        "name": "refundNotBefore",
+        "type": "uint64"
+      },
+      {
+        "name": "cdpPositionRoot",
+        "type": "bytes32"
+      },
+      {
+        "name": "cdpMints",
+        "type": "tuple[]",
+        "components": [
+          {
+            "name": "controller",
+            "type": "address"
+          },
+          {
+            "name": "debtAsset",
+            "type": "bytes32"
+          },
+          {
+            "name": "debtValue",
+            "type": "uint256"
+          },
+          {
+            "name": "positionLeaf",
+            "type": "bytes32"
+          },
+          {
+            "name": "rateSnapshot",
+            "type": "uint256"
+          },
+          {
+            "name": "legs",
+            "type": "tuple[]",
+            "components": [
+              {
+                "name": "asset",
+                "type": "bytes32"
+              },
+              {
+                "name": "value",
+                "type": "uint256"
+              }
+            ]
+          },
+          {
+            "name": "owner",
+            "type": "bytes32"
+          }
+        ]
+      },
+      {
+        "name": "cdpCloses",
+        "type": "tuple[]",
+        "components": [
+          {
+            "name": "controller",
+            "type": "address"
+          },
+          {
+            "name": "debtValue",
+            "type": "uint256"
+          },
+          {
+            "name": "repaid",
+            "type": "uint256"
+          },
+          {
+            "name": "rateSnapshot",
+            "type": "uint256"
+          },
+          {
+            "name": "positionNullifier",
+            "type": "bytes32"
+          },
+          {
+            "name": "legs",
+            "type": "tuple[]",
+            "components": [
+              {
+                "name": "asset",
+                "type": "bytes32"
+              },
+              {
+                "name": "value",
+                "type": "uint256"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "cdpLiquidations",
+        "type": "tuple[]",
+        "components": [
+          {
+            "name": "controller",
+            "type": "address"
+          },
+          {
+            "name": "debtValue",
+            "type": "uint256"
+          },
+          {
+            "name": "repaid",
+            "type": "uint256"
+          },
+          {
+            "name": "rateSnapshot",
+            "type": "uint256"
+          },
+          {
+            "name": "positionNullifier",
+            "type": "bytes32"
+          },
+          {
+            "name": "legs",
+            "type": "tuple[]",
+            "components": [
+              {
+                "name": "asset",
+                "type": "bytes32"
+              },
+              {
+                "name": "value",
+                "type": "uint256"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "cdpTopups",
+        "type": "tuple[]",
+        "components": [
+          {
+            "name": "controller",
+            "type": "address"
+          },
+          {
+            "name": "debtValue",
+            "type": "uint256"
+          },
+          {
+            "name": "rateSnapshot",
+            "type": "uint256"
+          },
+          {
+            "name": "oldPositionNullifier",
+            "type": "bytes32"
+          },
+          {
+            "name": "newPositionLeaf",
+            "type": "bytes32"
+          },
+          {
+            "name": "oldLegs",
+            "type": "tuple[]",
+            "components": [
+              {
+                "name": "asset",
+                "type": "bytes32"
+              },
+              {
+                "name": "value",
+                "type": "uint256"
+              }
+            ]
+          },
+          {
+            "name": "newLegs",
+            "type": "tuple[]",
+            "components": [
+              {
+                "name": "asset",
+                "type": "bytes32"
+              },
+              {
+                "name": "value",
+                "type": "uint256"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "cbtcMints",
+        "type": "tuple[]",
+        "components": [
+          {
+            "name": "outpoint",
+            "type": "bytes32"
+          },
+          {
+            "name": "vBtc",
+            "type": "uint256"
+          },
+          {
+            "name": "commitment",
+            "type": "bytes32"
+          }
+        ]
+      },
+      {
+        "name": "memoRoot",
+        "type": "bytes32"
+      },
+      {
+        "name": "bitcoinConsumedSources",
+        "type": "bytes32[]"
+      },
+      {
+        "name": "bitcoinBurnIdsConsumed",
+        "type": "bytes32[]"
+      },
+      {
+        "name": "harvestActionIds",
+        "type": "bytes32[]"
+      }
+    ]
+  }
+]

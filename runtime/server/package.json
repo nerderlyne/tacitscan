@@ -1,0 +1,8 @@
+{
+  "name": "tacitscan-server-runtime",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "pg": "8.21.0"
+  }
+}

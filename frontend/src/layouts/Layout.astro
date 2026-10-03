@@ -1,5 +1,6 @@
 ---
 import "../styles/global.css";
+import { parityEnabled } from "../lib/protocol-queries";
 import SearchBar from "../components/SearchBar.astro";
 
 interface Props {
@@ -60,8 +61,8 @@ const ldArray = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [];
       <a href="/airdrop" class="airdrop-banner-link">
         <span class="airdrop-banner-emoji" aria-hidden="true">🎁</span>
         <span class="airdrop-banner-text">
-          <strong>Airdrop is live.</strong>
-          <span class="airdrop-banner-sub">Check eligibility →</span>
+          <strong>TAC distributions.</strong>
+          <span class="airdrop-banner-sub">View allocations →</span>
         </span>
       </a>
       <button
@@ -109,6 +110,7 @@ const ldArray = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : [];
           <a href="/">Home</a>
           <a href="/assets">Assets</a>
           <a href="/activity">Activity</a>
+          {parityEnabled() && <a href="/protocol">Protocol</a>}
           <a href="/airdrop">Airdrop</a>
         </nav>
         {showHeaderSearch && <SearchBar />}

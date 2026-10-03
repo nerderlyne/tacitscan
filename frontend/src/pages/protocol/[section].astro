@@ -1,0 +1,76 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import ProtocolNav from '../../components/ProtocolNav.astro';
+import PublicFields from '../../components/PublicFields.astro';
+import { protocolActivity,protocolStatus,protocolAssets,canonicalRecords,evmVirtualAssets,virtualAssets,acceptedPoolRecords,settlementEffects,bridgeProgress,callProgress,collateralProgress,publicSupply,noteEntries,nullifierEntries,sections,chainName,bitcoinNetwork } from '../../lib/protocol-queries';
+import { shortHex } from '../../lib/format';
+const section=Astro.params.section??'activity';
+if(!(section in sections)) return new Response('Not found',{status:404});
+const title=sections[section as keyof typeof sections];
+const chain=Astro.url.searchParams.get('chain')??'';
+const q=Astro.url.searchParams.get('q')??'';
+const page=Math.max(0,Math.min(1000,Number(Astro.url.searchParams.get('page'))||0));
+const [activity,status,assets]=await Promise.all([protocolActivity(section,chain,q,page*100),protocolStatus(),section==='assets'?protocolAssets():Promise.resolve({data:[],error:null})]);
+const empty=()=>Promise.resolve({data:[] as Record<string,any>[],error:null});
+const [canonical,effects,bridges,supply,notes,nullifiers,poolNotes,poolExits,poolNullifiers,bonds,lpAssets,collateral,calls,mintProgress,evmLp]=await Promise.all([
+  ['assets','pools','farms'].includes(section)?canonicalRecords(section,q,page*100):empty(),
+  ['pools','farms','collateral','bridge','locks'].includes(section)?settlementEffects(section,q,page*100):empty(),
+  section==='bridge'?bridgeProgress(q,page*100):empty(),section==='assets'?publicSupply():empty(),
+  ['locks','secret-sats'].includes(section)?noteEntries(q,page*100,section==='secret-sats'?'evm-pool':''):empty(),
+  ['locks','secret-sats'].includes(section)?nullifierEntries(q,page*100):empty(),
+  section==='secret-sats'?acceptedPoolRecords('notes',q,page*100):empty(),
+  section==='secret-sats'?acceptedPoolRecords('exits',q,page*100):empty(),
+  section==='secret-sats'?acceptedPoolRecords('nullifiers',q,page*100):empty(),
+  section==='farms'?canonicalRecords('bonds',q,page*100):empty(),
+  section==='assets'?virtualAssets(q,page*100):empty(),
+  section==='collateral'?collateralProgress(q,page*100):empty(),
+  section==='bridge'?callProgress(q,page*100):empty(),
+  section==='assets'?canonicalRecords('mint-progress',q,page*100):empty(),
+  section==='assets'?evmVirtualAssets(q):empty(),
+]);
+const snapshots=status.data.snapshots.filter(s=>section==='assets'?s.resource==='state':section==='pools'?['pools','state'].includes(s.resource):section==='farms'?['farms','farm-program','farm-health'].includes(s.resource):section==='bridge'?s.resource==='reflection':section==='secret-sats'?s.source.startsWith('btc-pool:')||s.resource==='state':section==='collateral'?s.resource==='state':false);
+type PublicRecord=Record<string,any>;
+function pageUrl(n:number) {const u=new URL(Astro.url);u.searchParams.set('page',String(n));return u.pathname+u.search;}
+---
+<Layout title={`${title} · tacitscan`}>
+  <h1>{title}</h1><ProtocolNav />
+  {activity.error&&<p role="status">{activity.error}</p>}
+  {section==='secret-sats'&&<p>Bitcoin Secret Sats holds Tacit assets and is experimental. The EVM pools hold native ETH in a separate note system. Amounts and note owners inside the pools are private.</p>}
+  {section==='bridge'&&<p>Confirmation, reflection, and destination execution are separate stages. A burn or call alone does not establish completion.</p>}
+  {snapshots.map(s=><section><h2>{s.source} · {s.resource}</h2><p class="muted">Reference: {s.body.source??s.body.provenance} · fetched {new Date(s.fetched_at).toISOString()}{s.error?' · refresh failed':''}</p>
+    {Array.isArray(s.body.pools??s.body.farms)?(s.body.pools??s.body.farms).map((item:PublicRecord)=><details><summary>{String(item.pool_id??item.farm_id??'Record')} · {String(item.validation??'reference state')}</summary><PublicFields value={item}/></details>):<PublicFields value={s.body}/>}</section>)}
+  {section==='assets'&&<>
+    <p><a href="/assets">Bitcoin asset directory →</a>. Pool registrations preserve their canonical asset ID and exact unit scale.</p>
+    {assets.data.map((a:PublicRecord)=><section><h2>{a.symbol??shortHex(a.asset_id)} · {chainName(a.chain_id)}</h2><PublicFields value={a}/></section>)}
+  </>}
+  {canonical.data.length>0&&<section><h2>Canonical Bitcoin {title.toLowerCase()}</h2>
+    <p class="muted">Pinned upstream replay · through block {canonical.data[0]?.checkpoint.height}. Exact public amounts are shown in base units.</p>
+    {canonical.data.map(r=><details><summary>{r.body?.ticker??r.body?.pool_id??r.body?.farm_id??r.record_key}</summary><PublicFields value={typeof r.body==='object'?r.body:{value:r.body}}/></details>)}
+  </section>}
+  {mintProgress.data.length>0&&<section><h2>Canonical public mint progress</h2><p>Accepted cap accounting from the pinned replay, with its source height and pending/overflow counts.</p>{mintProgress.data.map(r=><details><summary>{r.record_key}</summary><PublicFields value={r.body}/></details>)}</section>}
+  {evmLp.data.length>0&&<section><h2>EVM LP assets</h2><p>Public total shares and reserves at one contract checkpoint. Public shares and confidential share notes use the same pool total.</p>{evmLp.data.map(r=><details><summary>{r.source} · {r.body.lpAssetId}</summary><PublicFields value={r}/></details>)}</section>}
+  {lpAssets.data.length>0&&<section><h2>Bitcoin LP assets</h2>{lpAssets.data.map(r=><details><summary>{r.asset_id}</summary><PublicFields value={r}/></details>)}</section>}
+  {bonds.data.length>0&&<section><h2>Bond receipts</h2>{bonds.data.map(r=><details><summary>{r.record_key}</summary><PublicFields value={r.body}/></details>)}</section>}
+  {supply.data.length>0&&<section><h2>Public token issuance</h2><p class="muted">Exact mint/burn event totals per token and deployment, through the indexed checkpoint. These are not combined into cross-chain circulating supply.</p>{supply.data.map(r=><details><summary>{chainName(r.chain_id)} · {r.address}</summary><PublicFields value={r}/></details>)}</section>}
+  {bridges.data.length>0&&<section><h2>Linked bridge progress</h2>{bridges.data.map(r=><article><h3><a href={`/protocol/tx/${bitcoinNetwork}/${r.txid}`}>{shortHex(r.txid)}</a></h3>
+    <p>{r.opcode==='T_POOL_BRIDGE_BURN'?(r.counterpart?.length?'Destination mint confirmed by successful settlement':'Burn observed; destination mint not indexed'):(r.counterpart?.length&&r.bitcoin_output_accepted?'Source cross-out and accepted Bitcoin output indexed':r.counterpart?.length?'Source cross-out indexed; Bitcoin output awaiting acceptance':'Bitcoin claim observed; source cross-out not indexed')}</p>
+    {r.counterpart?.map((c:PublicRecord)=><p><a href={`/protocol/tx/${c.chain}/${c.txid}`}>{chainName(c.chain)} counterpart →</a></p>)}
+    <PublicFields value={r.decoded}/></article>)}</section>}
+  {calls.data.length>0&&<section><h2>Cross-chain calls</h2><p>Public message identifiers link source messages and execution events. Calls carry authorization, not token value.</p>{calls.data.map(r=><details><summary>{r.opcode} · <a href={`/protocol/tx/${bitcoinNetwork}/${r.txid}`}>{shortHex(r.txid)}</a> · {r.counterpart?.length?"Counterpart indexed":"Counterpart not indexed"}</summary><PublicFields value={r}/></details>)}</section>}
+  {collateral.data.length>0&&<section><h2>cBTC lock lifecycle</h2><p>Bitcoin locks, public escrow events and accepted mints are linked by the exact outpoint key. An observed redemption requires reflection before escrow release.</p>{collateral.data.map(r=><details><summary><a href={`/protocol/tx/${bitcoinNetwork}/${r.txid}`}>{shortHex(r.txid)}</a> · {r.accepted_mints?.length?"Mint indexed":"Awaiting indexed mint"}</summary><PublicFields value={r}/></details>)}</section>}
+  {effects.data.length>0&&<section><h2>Accepted settlement effects</h2>{effects.data.map(r=><details><summary>{r.kind} · <a href={`/protocol/tx/${r.chain_id}/${r.txid}`}>{shortHex(r.txid)}</a></summary><PublicFields value={typeof r.body==='object'?r.body:{value:r.body}}/></details>)}</section>}
+  {notes.data.length>0&&<section><h2>Public note and position leaves</h2><p class="muted">Separate accumulators retain their own indices. A nullifier does not disclose which private leaf it spends.</p>{notes.data.map(r=><details><summary>{chainName(r.chain_id)} · {r.tree} #{r.leaf_index}</summary><PublicFields value={r}/></details>)}</section>}
+  {nullifiers.data.length>0&&<section><h2>Spent nullifiers</h2>{nullifiers.data.map(r=><details><summary>{chainName(r.chain_id)} · {r.tree} · {shortHex(String(r.nullifier))}</summary><PublicFields value={r}/></details>)}</section>}
+  {[['Accepted Bitcoin pool notes',poolNotes],['Accepted Bitcoin pool exits',poolExits],['Accepted Bitcoin pool nullifiers',poolNullifiers]].map(([heading,result]:any)=>result.data.length>0&&<section><h2>{heading}</h2><p class="muted">Verified replay through block {result.data[0].checkpoint.height} · {result.data[0].checkpoint.proofSystem}</p>{result.data.map((r:PublicRecord)=><details><summary>{r.body.txid??r.body.nf??r.body.idx}</summary><PublicFields value={r.body}/></details>)}</section>)}
+  <h2>Public activity</h2>
+  <form method="get" style="display:flex;gap:10px;flex-wrap:wrap;margin:16px 0">
+    <label>Chain <select name="chain"><option value="">All chains</option>{[bitcoinNetwork,'1','8453','4663'].map(c=><option value={c} selected={chain===c}>{chainName(c)}</option>)}</select></label>
+    <input name="q" value={q} placeholder="Transaction, asset, pool or claim ID" aria-label="Search public activity" maxlength="128"/><button>Filter</button>
+  </form>
+  <p class="muted">Bitcoin records are decoded observations unless validation evidence is shown. EVM rows are emitted contract events. Each chain is ordered by its own block height.</p>
+  <div style="overflow:auto"><table><thead><tr><th>Chain</th><th>Transaction</th><th>Operation</th><th>Block</th><th>Status</th></tr></thead><tbody>
+    {activity.data.map(r=><tr><td>{chainName(r.chain)}</td><td><a class="mono" href={`/protocol/tx/${r.chain}/${r.txid}`}>{shortHex(r.txid)}</a><small> #{r.ordinal}</small></td><td>{r.name}</td><td>{r.height??'Mempool'}</td><td>{r.decode_status==='malformed'?'Malformed':r.validation} · {r.status}</td></tr>)}
+  </tbody></table></div>
+  {!activity.data.length&&!activity.error&&<p>No indexed records match this view.</p>}
+  <p>{page>0&&<a href={pageUrl(page-1)}>← Previous </a>}{[activity,canonical,effects,bridges,notes,nullifiers,poolNotes,poolExits,poolNullifiers,bonds,lpAssets,collateral,calls,mintProgress].some(r=>r.data.length===100)&&<a href={pageUrl(page+1)}>Next →</a>}</p>
+</Layout>

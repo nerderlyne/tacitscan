@@ -1,3 +1,4 @@
+import { persistObservations } from './observations.js';
 // Mempool poller. Watches unconfirmed txs for Tacit envelopes so the
 // explorer can show them with "0 confirmations" before they land in a
 // block — same as Etherscan's pending-tx pages.
@@ -19,7 +20,7 @@
 // Concurrency: at most MEMPOOL_TX_CONCURRENCY parallel /tx fetches per
 // tick. Mempool churn is ~5–10 new txs/sec on mainnet, so a tick that
 // arrives every 5s has 25–50 fresh fetches to do.
-import { and, eq, lt } from "drizzle-orm";
+import { sql, and, eq, lt } from "drizzle-orm";
 import { db, schema } from "./db.js";
 import { hexToBytes } from "./envelope.js";
 import type { EsploraTx } from "./esplora.js";
@@ -148,14 +149,19 @@ async function pollOnce(
       } catch {
         // Tx may have been evicted between the listing and the fetch —
         // ignore; next poll will pick it up if it reappears.
-        return;
+        seen.delete(txid);
+        continue;
+      }
+      if(process.env.PARITY_INDEXING_ENABLED==='true') {
+        try {await persistObservations(db,tx,{network},true);} catch {seen.delete(txid);continue;}
       }
       const decoded = await tryDecodeTx(tx);
-      if (!decoded) return;
+      if (!decoded) continue;
       try {
         await insertMempoolEnvelope(network, tx, decoded);
         found++;
       } catch (e) {
+        seen.delete(txid);
         console.error(`[mempool] insert failed tx=${txid}:`, e);
       }
     }
@@ -188,6 +194,7 @@ async function expireOldMempool(network: string, maxAgeMs: number): Promise<numb
       ),
     )
     .returning({ txid: schema.envelopes.txid });
+  if(process.env.PARITY_INDEXING_ENABLED==='true') await db.execute(sql`DELETE FROM protocol_envelopes WHERE network=${network} AND chain_status='mempool' AND first_seen_at<${cutoff}`);
   return dropped.length;
 }
 

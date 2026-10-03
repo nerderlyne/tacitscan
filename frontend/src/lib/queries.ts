@@ -1,4 +1,6 @@
-import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
+import { TRANSFER_OPS } from "./protocol";
+const NETWORK = import.meta.env.PUBLIC_NETWORK ?? "mainnet";
+import { and, desc, eq, ilike, or, sql, inArray } from "drizzle-orm";
 import { db, schema } from "../db";
 
 export async function getRecentEnvelopes(limit = 25) {
@@ -21,7 +23,7 @@ export async function getRecentEnvelopes(limit = 25) {
     })
     .from(schema.envelopes)
     .leftJoin(schema.assets, eq(schema.envelopes.assetId, schema.assets.assetId))
-    .where(or(eq(schema.envelopes.chainStatus, "confirmed"), eq(schema.envelopes.chainStatus, "mempool")))
+    .where(and(eq(schema.envelopes.network, NETWORK), or(eq(schema.envelopes.chainStatus, "confirmed"), eq(schema.envelopes.chainStatus, "mempool"))))
     .orderBy(
       sql`CASE WHEN ${schema.envelopes.chainStatus} = 'mempool' THEN 0 ELSE 1 END`,
       desc(schema.envelopes.blockHeight),
@@ -33,7 +35,7 @@ export async function getRecentEnvelopes(limit = 25) {
 
 export async function getAssetsDirectory(opts: { limit?: number; offset?: number; q?: string } = {}) {
   const { limit = 50, offset = 0, q } = opts;
-  const where = q ? ilike(schema.assets.ticker, `%${q}%`) : undefined;
+  const where = and(eq(schema.assets.network, NETWORK), q ? ilike(schema.assets.ticker, `%${q}%`) : undefined);
   return db
     .select()
     .from(schema.assets)
@@ -45,13 +47,13 @@ export async function getAssetsDirectory(opts: { limit?: number; offset?: number
 
 export async function getAssetsCount(q?: string): Promise<number> {
   const rows = q
-    ? await db.execute<{ c: number }>(sql`SELECT COUNT(*)::int AS c FROM assets WHERE ticker ILIKE ${"%" + q + "%"}`)
-    : await db.execute<{ c: number }>(sql`SELECT COUNT(*)::int AS c FROM assets`);
+    ? await db.execute<{ c: number }>(sql`SELECT COUNT(*)::int AS c FROM assets WHERE network=${NETWORK} AND ticker ILIKE ${"%" + q + "%"}`)
+    : await db.execute<{ c: number }>(sql`SELECT COUNT(*)::int AS c FROM assets WHERE network=${NETWORK}`);
   return rows[0]?.c ?? 0;
 }
 
 export async function getAsset(assetId: string) {
-  const rows = await db.select().from(schema.assets).where(eq(schema.assets.assetId, assetId)).limit(1);
+  const rows = await db.select().from(schema.assets).where(and(eq(schema.assets.network, NETWORK), eq(schema.assets.assetId, assetId))).limit(1);
   return rows[0] ?? null;
 }
 
@@ -82,7 +84,7 @@ export async function getAssetMints(
   limit = 50,
 ): Promise<MintRow[]> {
   const slotsTotal =
-    capAmount && mintLimit && mintLimit > 0n ? Number(capAmount / mintLimit) : Number.MAX_SAFE_INTEGER;
+    capAmount && mintLimit && mintLimit > 0n ? (capAmount / mintLimit).toString() : '18446744073709551615';
   const rows = await db.execute<{
     txid: string;
     opcode: string;
@@ -114,7 +116,7 @@ export async function getAssetMints(
             e.block_height ASC NULLS LAST, e.tx_index ASC NULLS LAST
         ) AS valid_rank
       FROM envelopes e
-      WHERE e.asset_id = ${assetId}
+      WHERE e.network=${NETWORK} AND e.asset_id = ${assetId}
         AND e.opcode IN ('T_MINT', 'T_PMINT')
         AND e.status = 'ok'
         AND e.chain_status <> 'orphaned'
@@ -128,7 +130,7 @@ export async function getAssetMints(
         WHEN chain_status = 'mempool' THEN 'mempool'
         WHEN opcode = 'T_PMINT' AND commitment_valid IS NULL THEN 'pending'
         WHEN opcode = 'T_PMINT' AND commitment_valid = false THEN 'invalid'
-        WHEN opcode = 'T_PMINT' AND valid_rank <= ${slotsTotal} THEN 'credited'
+        WHEN opcode = 'T_PMINT' AND valid_rank <= ${slotsTotal}::numeric THEN 'credited'
         WHEN opcode = 'T_PMINT' THEN 'cap-overflow'
         WHEN opcode = 'T_MINT' AND issuer_sig_valid IS NULL THEN 'pending'
         WHEN opcode = 'T_MINT' AND issuer_sig_valid = false THEN 'invalid'
@@ -159,7 +161,7 @@ export async function getAssetBurns(assetId: string, limit = 50) {
   return db
     .select()
     .from(schema.envelopes)
-    .where(and(eq(schema.envelopes.assetId, assetId), eq(schema.envelopes.opcode, "T_BURN")))
+    .where(and(and(eq(schema.envelopes.network, NETWORK), eq(schema.envelopes.assetId, assetId)), eq(schema.envelopes.opcode, "T_BURN"), eq(schema.envelopes.chainStatus, "confirmed"), eq(schema.envelopes.status, "ok")))
     .orderBy(desc(schema.envelopes.blockHeight))
     .limit(limit);
 }
@@ -170,11 +172,10 @@ export async function getAssetTransfers(assetId: string, limit = 50) {
     .from(schema.envelopes)
     .where(
       and(
-        eq(schema.envelopes.assetId, assetId),
-        or(
-          eq(schema.envelopes.opcode, "CXFER"),
-          eq(schema.envelopes.opcode, "T_AXFER"),
-        ),
+        and(eq(schema.envelopes.network, NETWORK), eq(schema.envelopes.assetId, assetId)),
+        inArray(schema.envelopes.opcode, TRANSFER_OPS),
+        eq(schema.envelopes.chainStatus, "confirmed"),
+        eq(schema.envelopes.status, "ok"),
       ),
     )
     .orderBy(desc(schema.envelopes.blockHeight))
@@ -185,7 +186,7 @@ export async function getAssetCounts(assetId: string) {
   const rows = await db.execute<{ opcode: string; cnt: number }>(sql`
     SELECT opcode, COUNT(*)::int AS cnt
     FROM envelopes
-    WHERE asset_id = ${assetId} AND chain_status = 'confirmed'
+    WHERE network=${NETWORK} AND asset_id = ${assetId} AND chain_status = 'confirmed'
     GROUP BY opcode
   `);
   const counts: Record<string, number> = {};
@@ -197,7 +198,7 @@ export async function getCumulativeMinted(assetId: string): Promise<bigint> {
   const rows = await db.execute<{ s: string | null }>(sql`
     SELECT COALESCE(SUM(public_amount), 0)::text AS s
     FROM envelopes
-    WHERE asset_id = ${assetId}
+    WHERE network=${NETWORK} AND asset_id = ${assetId}
       AND opcode = 'T_PMINT'
       AND status = 'ok'
       AND chain_status = 'confirmed'
@@ -245,7 +246,7 @@ export async function getMintStats(
       COUNT(commitment_valid)::int AS checked,
       COUNT(*) FILTER (WHERE commitment_valid = true)::int AS passed
     FROM envelopes
-    WHERE asset_id = ${assetId}
+    WHERE network=${NETWORK} AND asset_id = ${assetId}
       AND opcode = 'T_PMINT'
       AND status = 'ok'
       AND chain_status = 'confirmed'
@@ -268,8 +269,8 @@ export async function getMintStats(
       mintedOut: false,
     };
   }
-  const slotsTotal = Number(capAmount / mintLimit);
-  const effectiveCount = Math.min(passedCount, slotsTotal);
+  const slotsTotal = capAmount / mintLimit;
+  const effectiveCount = Number(BigInt(passedCount) < slotsTotal ? BigInt(passedCount) : slotsTotal);
   return {
     rawCount,
     checkedCount,
@@ -278,7 +279,7 @@ export async function getMintStats(
     cumMinted: BigInt(effectiveCount) * mintLimit,
     capOverflow: passedCount - effectiveCount,
     pendingCount,
-    mintedOut: effectiveCount >= slotsTotal,
+    mintedOut: BigInt(effectiveCount) >= slotsTotal,
   };
 }
 
@@ -286,7 +287,7 @@ export async function getCumulativeBurned(assetId: string): Promise<bigint> {
   const rows = await db.execute<{ s: string | null }>(sql`
     SELECT COALESCE(SUM(burned_amount), 0)::text AS s
     FROM envelopes
-    WHERE asset_id = ${assetId} AND opcode = 'T_BURN' AND status = 'ok'
+    WHERE network=${NETWORK} AND asset_id = ${assetId} AND opcode = 'T_BURN' AND status = 'ok' AND chain_status='confirmed'
   `);
   const s = rows[0]?.s;
   return s ? BigInt(s) : 0n;
@@ -300,7 +301,7 @@ export async function getEnvelope(txid: string) {
     })
     .from(schema.envelopes)
     .leftJoin(schema.assets, eq(schema.envelopes.assetId, schema.assets.assetId))
-    .where(eq(schema.envelopes.txid, txid))
+    .where(and(eq(schema.envelopes.network, NETWORK), eq(schema.envelopes.txid, txid)))
     .limit(1);
   return rows[0] ?? null;
 }
@@ -317,13 +318,13 @@ export async function getEnvelopeByCommitTxid(commitTxid: string) {
     })
     .from(schema.envelopes)
     .leftJoin(schema.assets, eq(schema.envelopes.assetId, schema.assets.assetId))
-    .where(eq(schema.envelopes.commitTxid, commitTxid))
+    .where(and(eq(schema.envelopes.network, NETWORK), eq(schema.envelopes.commitTxid, commitTxid)))
     .limit(1);
   return rows[0] ?? null;
 }
 
 export async function setEnvelopeFee(txid: string, feeSats: bigint): Promise<void> {
-  await db.update(schema.envelopes).set({ feeSats }).where(eq(schema.envelopes.txid, txid));
+  await db.update(schema.envelopes).set({ feeSats }).where(and(eq(schema.envelopes.network, NETWORK), eq(schema.envelopes.txid, txid)));
 }
 
 // Latest confirmed block height we've indexed. Used for confirmation count
@@ -338,7 +339,7 @@ export async function getIndexerTipHeight(network: string): Promise<number | nul
 // supports limit/offset. Excludes orphaned rows.
 export async function getEnvelopesPage(opts: { limit?: number; offset?: number; opcode?: string | null } = {}) {
   const { limit = 50, offset = 0, opcode = null } = opts;
-  const statusWhere = or(eq(schema.envelopes.chainStatus, "confirmed"), eq(schema.envelopes.chainStatus, "mempool"));
+  const statusWhere = and(eq(schema.envelopes.network, NETWORK), or(eq(schema.envelopes.chainStatus, "confirmed"), eq(schema.envelopes.chainStatus, "mempool")));
   const where = opcode ? and(statusWhere, eq(schema.envelopes.opcode, opcode)) : statusWhere;
   return db
     .select({
@@ -371,11 +372,11 @@ export async function getEnvelopesCount(opcode: string | null = null): Promise<n
   const rows = opcode
     ? await db.execute<{ c: number }>(sql`
         SELECT COUNT(*)::int AS c FROM envelopes
-        WHERE chain_status IN ('confirmed', 'mempool') AND opcode = ${opcode}
+        WHERE network=${NETWORK} AND chain_status IN ('confirmed', 'mempool') AND opcode = ${opcode}
       `)
     : await db.execute<{ c: number }>(sql`
         SELECT COUNT(*)::int AS c FROM envelopes
-        WHERE chain_status IN ('confirmed', 'mempool')
+        WHERE network=${NETWORK} AND chain_status IN ('confirmed', 'mempool')
       `);
   return rows[0]?.c ?? 0;
 }
@@ -385,7 +386,7 @@ export async function getEnvelopesCount(opcode: string | null = null): Promise<n
 export async function getOpcodeCounts(): Promise<Record<string, number>> {
   const rows = await db.execute<{ opcode: string; c: number }>(sql`
     SELECT opcode, COUNT(*)::int AS c FROM envelopes
-    WHERE chain_status IN ('confirmed', 'mempool')
+    WHERE network=${NETWORK} AND chain_status IN ('confirmed', 'mempool')
     GROUP BY opcode
     ORDER BY c DESC
   `);
@@ -559,7 +560,7 @@ export async function getAddressInteractions(network: string, address: string, l
 }
 
 export async function getCommitmentsByTx(txid: string) {
-  return db.select().from(schema.commitments).where(eq(schema.commitments.txid, txid));
+  return db.select().from(schema.commitments).where(and(eq(schema.commitments.network, NETWORK), eq(schema.commitments.txid, txid)));
 }
 
 export async function getCommitment(txid: string, vout: number) {
@@ -572,7 +573,7 @@ export async function getCommitment(txid: string, vout: number) {
     .from(schema.commitments)
     .leftJoin(schema.assets, eq(schema.commitments.assetId, schema.assets.assetId))
     .leftJoin(schema.envelopes, eq(schema.commitments.txid, schema.envelopes.txid))
-    .where(and(eq(schema.commitments.txid, txid), eq(schema.commitments.vout, vout)))
+    .where(and(and(eq(schema.commitments.network, NETWORK), eq(schema.commitments.txid, txid)), eq(schema.commitments.vout, vout)))
     .limit(1);
   return rows[0] ?? null;
 }
@@ -591,7 +592,7 @@ export async function search(q: string) {
           blockHeight: schema.envelopes.blockHeight,
         })
         .from(schema.envelopes)
-        .where(sql`${schema.envelopes.txid} LIKE ${norm + "%"}`)
+        .where(and(eq(schema.envelopes.network, NETWORK), sql`${schema.envelopes.txid} LIKE ${norm + "%"}`))
         .limit(5)
     : [];
 
@@ -603,7 +604,7 @@ export async function search(q: string) {
           kind: schema.assets.kind,
         })
         .from(schema.assets)
-        .where(sql`${schema.assets.assetId} LIKE ${norm + "%"}`)
+        .where(and(eq(schema.assets.network, NETWORK), sql`${schema.assets.assetId} LIKE ${norm + "%"}`))
         .limit(5)
     : [];
 
@@ -614,7 +615,7 @@ export async function search(q: string) {
       kind: schema.assets.kind,
     })
     .from(schema.assets)
-    .where(ilike(schema.assets.ticker, `%${q}%`))
+    .where(and(eq(schema.assets.network, NETWORK), ilike(schema.assets.ticker, `%${q}%`)))
     .limit(8);
 
   // Dedupe assets by id, prefer ticker matches first.
@@ -631,6 +632,87 @@ export async function search(q: string) {
 export async function getCursor(network: string) {
   const rows = await db.select().from(schema.cursor).where(eq(schema.cursor.network, network)).limit(1);
   return rows[0] ?? null;
+}
+
+export interface BlockRow {
+  height: number;
+  blockHash: string;
+  blockTime: Date;
+  envelopeCount: number;
+}
+
+// Recent blocks the indexer has walked, newest first, each tagged with
+// the count of confirmed Tacit envelopes that landed in it. Blocks with
+// zero envelopes are still listed — the indexer records every walked
+// block. Mempool envelopes are excluded since they have no block_height.
+export async function getRecentBlocks(network: string, limit = 10): Promise<BlockRow[]> {
+  const rows = await db.execute<{
+    height: number;
+    block_hash: string;
+    block_time: Date;
+    envelope_count: number;
+  }>(sql`
+    SELECT
+      b.height,
+      b.block_hash,
+      b.block_time,
+      COALESCE(ec.cnt, 0)::int AS envelope_count
+    FROM blocks b
+    LEFT JOIN (
+      SELECT network, block_height, COUNT(*)::int AS cnt
+      FROM envelopes
+      WHERE network = ${network} AND chain_status = 'confirmed'
+      GROUP BY network, block_height
+    ) ec ON ec.network = b.network AND ec.block_height = b.height
+    WHERE b.network = ${network}
+    ORDER BY b.height DESC
+    LIMIT ${limit}
+  `);
+  return rows.map((r) => ({
+    height: r.height,
+    blockHash: r.block_hash,
+    blockTime: new Date(r.block_time),
+    envelopeCount: r.envelope_count,
+  }));
+}
+
+export async function getBlocksPage(network: string, opts: { limit?: number; offset?: number } = {}): Promise<BlockRow[]> {
+  const { limit = 50, offset = 0 } = opts;
+  const rows = await db.execute<{
+    height: number;
+    block_hash: string;
+    block_time: Date;
+    envelope_count: number;
+  }>(sql`
+    SELECT
+      b.height,
+      b.block_hash,
+      b.block_time,
+      COALESCE(ec.cnt, 0)::int AS envelope_count
+    FROM blocks b
+    LEFT JOIN (
+      SELECT network, block_height, COUNT(*)::int AS cnt
+      FROM envelopes
+      WHERE network = ${network} AND chain_status = 'confirmed'
+      GROUP BY network, block_height
+    ) ec ON ec.network = b.network AND ec.block_height = b.height
+    WHERE b.network = ${network}
+    ORDER BY b.height DESC
+    LIMIT ${limit} OFFSET ${offset}
+  `);
+  return rows.map((r) => ({
+    height: r.height,
+    blockHash: r.block_hash,
+    blockTime: new Date(r.block_time),
+    envelopeCount: r.envelope_count,
+  }));
+}
+
+export async function getBlocksCount(network: string): Promise<number> {
+  const rows = await db.execute<{ c: number }>(
+    sql`SELECT COUNT(*)::int AS c FROM blocks WHERE network = ${network}`,
+  );
+  return rows[0]?.c ?? 0;
 }
 
 // Set of tickers that have more than one asset registered against them.

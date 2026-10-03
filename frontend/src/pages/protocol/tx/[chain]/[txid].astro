@@ -1,0 +1,30 @@
+---
+import Layout from '../../../../layouts/Layout.astro';
+import ProtocolNav from '../../../../components/ProtocolNav.astro';
+import PublicFields from '../../../../components/PublicFields.astro';
+import { protocolTransaction,protocolSettlements,chainName } from '../../../../lib/protocol-queries';
+const {chain='',txid=''}=Astro.params;
+if(!/^(?:0x)?[0-9a-f]{64}$/i.test(txid)) return new Response('Invalid transaction ID',{status:400});
+const [{data,error},settlements]=await Promise.all([protocolTransaction(chain,txid.toLowerCase()),protocolSettlements(chain,txid.toLowerCase())]);
+if(!error&&!data.length) Astro.response.status=404;
+---
+<Layout title={`${txid.slice(0,12)} · ${chainName(chain)} · tacitscan`}>
+  <h1>{chainName(chain)} transaction</h1><p class="mono" style="overflow-wrap:anywhere">{txid}</p><ProtocolNav/>
+  {error&&<p role="status">{error}</p>}
+  {!data.length&&!error&&<p>No protocol records have been indexed for this transaction.</p>}
+  {data.map(r=><section><h2>{r.name} · {chain==='mainnet'||chain==='signet'?'input':'log'} {r.ordinal}</h2>
+    <p>{r.status} · block {r.height??'pending'} · {r.validation} {r.support&&`· ${r.support}`}</p>
+    {r.decode_error&&<p>{r.decode_error}</p>}
+    {r.asset_id&&<p class="mono">Asset / contract: <a href={`/protocol/activity?chain=${chain}&q=${encodeURIComponent(r.asset_id)}`}>{r.asset_id}</a></p>}
+    <PublicFields value={r.details}/>
+    {r.validation_evidence&&<><h3>Validation evidence</h3><p class="muted">Reference decisions are attributed to their source and fetched time. They are not independent proof verification.</p><PublicFields value={r.validation_evidence}/></>}
+    <details><summary>Raw public data</summary><pre style="overflow:auto;max-height:350px">{typeof r.raw==='string'?r.raw:JSON.stringify(r.raw,null,2)}</pre></details>
+  </section>)}
+  {settlements.data.map(s=><section>
+    <h2>Settlement call {s.call_index}</h2>
+    <p>{s.authority==='unconfirmed-calldata'?'Unconfirmed calldata — excluded from accepted effects':s.authority==='direct-pool-call'?'Successful direct protocol call':'Successful protocol call confirmed by trace'}</p>
+    {s.decode_error&&<p>{s.decode_error}</p>}
+    <PublicFields value={s.public_values}/>
+    <details><summary>Public recovery memos</summary><pre style="overflow:auto">{JSON.stringify(s.memos,null,2)}</pre></details>
+  </section>)}
+</Layout>

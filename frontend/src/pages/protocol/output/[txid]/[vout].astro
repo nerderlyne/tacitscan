@@ -1,0 +1,13 @@
+---
+import Layout from '../../../../layouts/Layout.astro';
+import PublicFields from '../../../../components/PublicFields.astro';
+import { protocolOutput,bitcoinNetwork } from '../../../../lib/protocol-queries';
+const {txid='',vout=''}=Astro.params;
+if(!/^[a-f0-9]{64}$/.test(txid)||!/^\d{1,10}$/.test(vout)) return new Response('Invalid outpoint',{status:400});
+const {data,error}=await protocolOutput(txid,Number(vout));
+if(!data&&!error) Astro.response.status=404;
+---
+<Layout title="Protocol output · tacitscan"><h1>Output commitment</h1>
+  {error&&<p>{error}</p>}
+  {data?<><p>A decoded commitment is an observation. Protocol acceptance and Bitcoin spend status are separate.</p><PublicFields value={data}/><p><a href={`/protocol/tx/${bitcoinNetwork}/${txid}`}>Transaction →</a></p></>:!error&&<p>No output indexed.</p>}
+</Layout>

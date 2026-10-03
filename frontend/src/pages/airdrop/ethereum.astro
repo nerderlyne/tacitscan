@@ -1,0 +1,23 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { ethereumAllocation,AIRDROP_ADDRESS } from '../../lib/ethereum-airdrop';
+import { formatAmount } from '../../lib/format';
+const address=Astro.url.searchParams.get('address')??'';
+let allocation:Awaited<ReturnType<typeof ethereumAllocation>>|null=null;let error='';
+if(address) try {allocation=await ethereumAllocation(address);} catch(e) {error=e instanceof Error?e.message:'Lookup unavailable';}
+Astro.response.headers.set('Cache-Control','no-store');
+---
+<Layout title="Ethereum TAC allocation · tacitscan">
+  <h1>Ethereum TAC allocation</h1>
+  <p>The Ethereum distribution has its own Merkle allocations. It is separate from the <a href="/airdrop">historical Bitcoin snapshot</a>.</p>
+  <form method="get"><label>Ethereum address <input name="address" value={address} placeholder="0x…" required maxlength="42"/></label> <button>Check allocation</button></form>
+  {error&&<p role="status">{error}</p>}
+  {allocation&&<section>
+    <h2>{allocation.published?'Published allocation':'No allocation in the published shard'}</h2>
+    {'amountWei' in allocation&&<p><strong>{formatAmount(BigInt(allocation.amountWei!),18)} TAC</strong> · Merkle proof verified</p>}
+    {'chainStatus' in allocation&&<p>Claim status: {allocation.chainStatus}{'asOfBlock' in allocation&&` · Ethereum block ${allocation.asOfBlock}`}</p>}
+    {'message' in allocation&&<p>{allocation.message}</p>}
+    <p><a href="https://tacit.finance/" rel="noreferrer">Open the Tacit app →</a></p>
+  </section>}
+  <p class="muted" style="overflow-wrap:anywhere">Distributor: {AIRDROP_ADDRESS}. “Unclaimed” describes the claim bit at the displayed block; it does not guarantee a transaction will succeed.</p>
+</Layout>

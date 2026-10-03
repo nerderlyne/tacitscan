@@ -12,19 +12,25 @@
   },
   "dependencies": {
     "@astrojs/check": "0.9.4",
-    "@astrojs/node": "10.1.1",
+    "@astrojs/node": "11.1.6",
     "@types/node": "22.13.0",
-    "astro": "6.3.1",
-    "drizzle-orm": "0.36.0",
+    "astro": "7.3.5",
+    "drizzle-orm": "0.45.3",
     "postgres": "3.4.4",
     "typescript": "5.6.2",
-    "viem": "^2.48.11",
-    "wns-utils": "^0.2.1"
+    "viem": "2.56.9",
+    "wns-utils": "0.2.1"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
       "sharp"
-    ]
-  }
+    ],
+    "overrides": {
+      "yaml": "2.8.3",
+      "fast-uri": "3.1.8",
+      "smol-toml": "1.8.0"
+    }
+  },
+  "packageManager": "pnpm@10.20.0"
 }

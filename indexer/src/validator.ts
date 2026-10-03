@@ -21,6 +21,7 @@ const IDLE_POLL_MS = 30_000;
 
 interface PMintRow {
   txid: string;
+  blockHash: string;
   assetId: string | null;
   etchTxid: string | null;
   blockHeight: number;
@@ -34,6 +35,7 @@ async function fetchUnverifiedBatch(): Promise<PMintRow[]> {
   // already saved when it ingested the T_PMINT.
   const rows = await db.execute<{
     txid: string;
+    block_hash: string;
     asset_id: string | null;
     etch_txid: string | null;
     block_height: number;
@@ -41,21 +43,23 @@ async function fetchUnverifiedBatch(): Promise<PMintRow[]> {
     blinding: Buffer | null;
     commitment_c: Buffer | null;
   }>(sql`
-    SELECT e.txid, e.asset_id, e.etch_txid, e.block_height,
+    SELECT e.txid, e.block_hash, e.asset_id, e.etch_txid, e.block_height,
            e.public_amount::text AS public_amount,
            c.public_blinding AS blinding, c.commitment_c
     FROM envelopes e
     LEFT JOIN commitments c ON c.txid = e.txid AND c.vout = 0
     WHERE e.opcode = 'T_PMINT'
+      AND e.network = ${process.env.BITCOIN_NETWORK ?? 'mainnet'}
       AND e.status = 'ok'
       AND e.chain_status = 'confirmed'
       AND e.commitment_valid IS NULL
-    ORDER BY e.block_height ASC
+    ORDER BY e.commitment_checked_at ASC NULLS FIRST, e.block_height ASC
     LIMIT ${BATCH_SIZE}
   `);
 
   return rows.map((r) => ({
     txid: r.txid,
+    blockHash: r.block_hash,
     assetId: r.asset_id,
     etchTxid: r.etch_txid,
     blockHeight: r.block_height,
@@ -80,10 +84,13 @@ interface ParentInfo {
 // the dominant cost in the loop. Cache is unbounded; the parent set is
 // small (one row per T_PETCH ever).
 const parentCache = new Map<string, ParentInfo>();
+let parentGeneration=0;
+export function clearParentCache() { parentGeneration++; parentCache.clear(); }
 
 async function checkParent(etchTxid: string): Promise<ParentInfo> {
-  const cached = parentCache.get(etchTxid);
-  if (cached) return cached;
+  const cached=parentCache.get(etchTxid);
+  if(cached) return cached;
+  const generation=parentGeneration;
   const parents = await db
     .select({
       kind: schema.assets.kind,
@@ -127,20 +134,20 @@ async function checkParent(etchTxid: string): Promise<ParentInfo> {
   // Don't cache "no parent yet" results — the T_PETCH may show up in a
   // future block and we want to re-look. Cache permanent hits + permanent
   // misses (kind != t_petch).
-  if (info.ok || info.reason?.startsWith("parent kind=")) {
+  if (generation===parentGeneration && (info.ok || info.reason?.startsWith("parent kind="))) {
     parentCache.set(etchTxid, info);
   }
   return info;
 }
 
-async function validateOne(row: PMintRow): Promise<{ valid: boolean; reason?: string }> {
+async function validateOne(row: PMintRow): Promise<{ valid: boolean | null; reason?: string }> {
   if (!row.etchTxid) return { valid: false, reason: "missing etch_txid" };
   if (row.publicAmount === null) return { valid: false, reason: "missing amount" };
   if (!row.blinding) return { valid: false, reason: "missing blinding" };
   if (!row.commitmentC) return { valid: false, reason: "missing commitment" };
 
   const parent = await checkParent(row.etchTxid);
-  if (!parent.ok) return { valid: false, reason: parent.reason ?? "parent not valid" };
+  if (!parent.ok) return { valid: parent.reason?.includes("no T_PETCH") ? null : false, reason: parent.reason ?? "parent not valid" };
 
   if (parent.mintLimit !== null && row.publicAmount !== parent.mintLimit) {
     return { valid: false, reason: `amount ${row.publicAmount} != mint_limit ${parent.mintLimit}` };
@@ -182,7 +189,7 @@ async function validateOne(row: PMintRow): Promise<{ valid: boolean; reason?: st
   return { valid: true };
 }
 
-async function persistResult(txid: string, valid: boolean, reason?: string): Promise<void> {
+async function persistResult(row: PMintRow, valid: boolean | null, reason?: string): Promise<void> {
   await db
     .update(schema.envelopes)
     .set({
@@ -190,7 +197,7 @@ async function persistResult(txid: string, valid: boolean, reason?: string): Pro
       commitmentCheckedAt: new Date(),
       commitmentInvalidReason: valid ? null : (reason ?? "unknown").slice(0, 500),
     })
-    .where(eq(schema.envelopes.txid, txid));
+    .where(sql`${schema.envelopes.txid}=${row.txid} AND ${schema.envelopes.blockHash}=${row.blockHash} AND ${schema.envelopes.chainStatus}='confirmed'`);
 }
 
 export async function runValidator(): Promise<never> {
@@ -217,17 +224,18 @@ export async function runValidator(): Promise<never> {
           if (!row) return;
           try {
             const r = await validateOne(row);
-            await persistResult(row.txid, r.valid, r.reason);
+            await persistResult(row, r.valid, r.reason);
             if (r.valid) valid++;
-            else invalid++;
+            else if(r.valid===false) invalid++;
           } catch (e) {
             const msg = e instanceof Error ? e.message : String(e);
-            await persistResult(row.txid, false, `error: ${msg}`).catch(() => undefined);
+            await persistResult(row, null, `retry: ${msg}`).catch(() => undefined);
             invalid++;
           }
         }
       }),
     );
+    if(valid+invalid===0) await sleep(IDLE_POLL_MS);
     const took = ((Date.now() - startedAt) / 1000).toFixed(1);
     console.log(
       `[validator] batch: +${valid} valid, ${invalid} invalid in ${took}s (rate=${(batch.length / Math.max(0.1, Number(took))).toFixed(0)}/s)`,

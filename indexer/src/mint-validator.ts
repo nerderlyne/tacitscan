@@ -30,10 +30,11 @@ import { db, schema } from "./db.js";
 const BATCH_SIZE = 50;
 const IDLE_POLL_MS = 60_000;
 const FETCH_TIMEOUT_MS = 6000;
-const ESPLORA_BASE = process.env.ESPLORA_URL ?? "https://mempool.space/api";
+const ESPLORA_BASE = process.env.ESPLORA_URL ?? (process.env.BITCOIN_NETWORK === "signet" ? "https://mempool.space/signet/api" : "https://mempool.space/api");
 
 interface MintRow {
   txid: string;
+  blockHash: string;
   assetId: string | null;
   etchTxid: string | null;
   issuerSig: Uint8Array | null;
@@ -46,25 +47,28 @@ async function fetchUnverifiedBatch(): Promise<MintRow[]> {
   // there. issuer_sig is on envelopes directly.
   const rows = await db.execute<{
     txid: string;
+    block_hash: string;
     asset_id: string | null;
     etch_txid: string | null;
     issuer_sig: Buffer | null;
     commitment_c: Buffer | null;
     encrypted_amount: Buffer | null;
   }>(sql`
-    SELECT e.txid, e.asset_id, e.etch_txid, e.issuer_sig,
+    SELECT e.txid, e.block_hash, e.asset_id, e.etch_txid, e.issuer_sig,
            c.commitment_c, c.encrypted_amount
     FROM envelopes e
     LEFT JOIN commitments c ON c.txid = e.txid AND c.vout = 0
     WHERE e.opcode = 'T_MINT'
+      AND e.network = ${process.env.BITCOIN_NETWORK ?? 'mainnet'}
       AND e.status = 'ok'
       AND e.chain_status = 'confirmed'
       AND e.issuer_sig_valid IS NULL
-    ORDER BY e.block_height ASC
+    ORDER BY e.issuer_sig_checked_at ASC NULLS FIRST, e.block_height ASC
     LIMIT ${BATCH_SIZE}
   `);
   return rows.map((r) => ({
     txid: r.txid,
+    blockHash: r.block_hash,
     assetId: r.asset_id,
     etchTxid: r.etch_txid,
     issuerSig: r.issuer_sig ? new Uint8Array(r.issuer_sig) : null,
@@ -122,7 +126,7 @@ function buildCommitAnchor(commitTxidDisplayed: string, commitVout: number): Uin
   return concat(txidBytes, voutBytes);
 }
 
-async function getMintAuthority(etchTxid: string): Promise<{ ok: boolean; pubkey?: Uint8Array; reason?: string }> {
+async function getMintAuthority(etchTxid: string): Promise<{ ok: boolean; pending?: boolean; pubkey?: Uint8Array; reason?: string }> {
   const parents = await db
     .select({
       kind: schema.assets.kind,
@@ -132,13 +136,13 @@ async function getMintAuthority(etchTxid: string): Promise<{ ok: boolean; pubkey
     .where(eq(schema.assets.etchTxid, etchTxid))
     .limit(1);
   const parent = parents[0];
-  if (!parent) return { ok: false, reason: "etch_txid has no CETCH ancestor" };
+  if (!parent) return { ok: false, pending: true, reason: "parent CETCH is not indexed yet" };
   if (parent.kind !== "cetch") return { ok: false, reason: `parent kind=${parent.kind}, expected cetch` };
   if (!parent.mintAuthority) return { ok: false, reason: "parent CETCH is non-mintable (mint_authority = 0)" };
   return { ok: true, pubkey: hexToBytes(parent.mintAuthority) };
 }
 
-async function validateOne(row: MintRow): Promise<{ valid: boolean; reason?: string }> {
+async function validateOne(row: MintRow): Promise<{ valid: boolean | null; reason?: string }> {
   if (!row.assetId) return { valid: false, reason: "missing asset_id" };
   if (!row.etchTxid) return { valid: false, reason: "missing etch_txid" };
   if (!row.issuerSig || row.issuerSig.length !== 64) return { valid: false, reason: "missing or malformed issuer_sig" };
@@ -146,15 +150,15 @@ async function validateOne(row: MintRow): Promise<{ valid: boolean; reason?: str
   if (!row.amountCt || row.amountCt.length !== 8) return { valid: false, reason: "missing amount_ct" };
 
   const auth = await getMintAuthority(row.etchTxid);
-  if (!auth.ok || !auth.pubkey) return { valid: false, reason: auth.reason ?? "mint_authority lookup failed" };
+  if (!auth.ok || !auth.pubkey) return { valid: auth.pending ? null : false, reason: auth.reason ?? "mint_authority lookup failed" };
 
   // Two HTTP fetches per T_MINT to derive the commit_anchor:
   //   reveal_tx.vin[0]    → tells us the commit tx outpoint
   //   commit_tx.vin[0]    → the actual anchor outpoint
   const reveal = await fetchTxVin0(row.txid);
-  if (!reveal) return { valid: false, reason: "could not fetch reveal_tx.vin[0]" };
+  if (!reveal) return { valid: null, reason: "could not fetch reveal_tx.vin[0]" };
   const commit = await fetchTxVin0(reveal.txid);
-  if (!commit) return { valid: false, reason: "could not fetch commit_tx.vin[0]" };
+  if (!commit) return { valid: null, reason: "could not fetch commit_tx.vin[0]" };
 
   const anchor = buildCommitAnchor(commit.txid, commit.vout);
   const assetIdBytes = hexToBytes(row.assetId);
@@ -169,7 +173,7 @@ async function validateOne(row: MintRow): Promise<{ valid: boolean; reason?: str
   return ok ? { valid: true } : { valid: false, reason: "schnorr signature does not verify under mint_authority" };
 }
 
-async function persistResult(txid: string, valid: boolean, reason?: string): Promise<void> {
+async function persistResult(row: MintRow, valid: boolean | null, reason?: string): Promise<void> {
   await db
     .update(schema.envelopes)
     .set({
@@ -177,7 +181,7 @@ async function persistResult(txid: string, valid: boolean, reason?: string): Pro
       issuerSigCheckedAt: new Date(),
       issuerSigInvalidReason: valid ? null : (reason ?? "unknown").slice(0, 500),
     })
-    .where(eq(schema.envelopes.txid, txid));
+    .where(sql`${schema.envelopes.txid}=${row.txid} AND ${schema.envelopes.blockHash}=${row.blockHash} AND ${schema.envelopes.chainStatus}='confirmed'`);
 }
 
 export async function runMintValidator(): Promise<never> {
@@ -194,16 +198,17 @@ export async function runMintValidator(): Promise<never> {
     for (const row of batch) {
       try {
         const r = await validateOne(row);
-        await persistResult(row.txid, r.valid, r.reason);
+        await persistResult(row, r.valid, r.reason);
         if (r.valid) valid++;
-        else invalid++;
+        else if(r.valid===false) invalid++;
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        await persistResult(row.txid, false, `error: ${msg}`).catch(() => undefined);
+        await persistResult(row, null, `retry: ${msg}`).catch(() => undefined);
         invalid++;
       }
     }
     const took = ((Date.now() - startedAt) / 1000).toFixed(1);
+    await sleep(IDLE_POLL_MS);
     console.log(`[mint-validator] batch: +${valid} valid, ${invalid} invalid in ${took}s`);
   }
 }

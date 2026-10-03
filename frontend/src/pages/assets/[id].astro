@@ -1,4 +1,5 @@
 ---
+import { TRANSFER_OPS } from "../../lib/protocol";
 import Layout from "../../layouts/Layout.astro";
 import AssetThumb from "../../components/AssetThumb.astro";
 import AssetMark from "../../components/AssetMark.astro";
@@ -337,7 +338,7 @@ const jsonLd = {
     <div class="stat">
       <div class="label">transfers</div>
       <div class="value">
-        {(counts["CXFER"] ?? 0) + (counts["T_AXFER"] ?? 0)}
+        {TRANSFER_OPS.reduce((n,op)=>n+(counts[op]??0),0)}
       </div>
     </div>
     {

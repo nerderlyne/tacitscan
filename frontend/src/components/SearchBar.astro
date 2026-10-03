@@ -1,8 +1,9 @@
 ---
+import { parityEnabled } from "../lib/protocol-queries";
 // Vanilla-JS search island. Posts to /api/search and renders results.
 ---
 
-<div class="searchbar">
+<div class="searchbar" data-protocol={parityEnabled()}>
   <input
     type="text"
     placeholder="Search txid, asset_id, ticker, or bc1… address"
@@ -73,6 +74,7 @@
           html += `<a href="/tx/${t.txid}">${t.opcode} · ${t.txid.slice(0, 24)}…</a>`;
         }
       }
+      if (input.closest(".searchbar")?.getAttribute("data-protocol")==="true") html += `<div class="group">protocol</div><a href="/protocol/activity?q=${encodeURIComponent(q)}">Search all chains and public protocol identifiers →</a><a href="/protocol/assets?q=${encodeURIComponent(q)}">Search canonical and virtual assets →</a>`;
       if (!html) html = `<div class="group">no matches</div>`;
       results.innerHTML = html;
       results.classList.add("open");

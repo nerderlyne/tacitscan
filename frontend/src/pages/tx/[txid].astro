@@ -1,4 +1,5 @@
 ---
+import { protocolTransaction, parityEnabled } from "../../lib/protocol-queries";
 import Layout from "../../layouts/Layout.astro";
 import AssetMark from "../../components/AssetMark.astro";
 import AssetThumb from "../../components/AssetThumb.astro";
@@ -22,6 +23,10 @@ if (!row) {
     row = commitMatch;
     matchedAsCommit = true;
   }
+}
+if (!row && parityEnabled()) {
+  const records=await protocolTransaction(import.meta.env.PUBLIC_NETWORK??'mainnet',txid);
+  if(records.data.length) return Astro.redirect(`/protocol/tx/${import.meta.env.PUBLIC_NETWORK??'mainnet'}/${txid}`);
 }
 if (!row) {
   Astro.response.status = 404;
@@ -331,6 +336,8 @@ const jsonLd = {
     </section>
   )}
 
+  {parityEnabled() && <p><a href={`/protocol/tx/${network}/${env.txid}`}>View all input envelopes and protocol fields →</a></p>}
+  <p class="muted">Decoded means the byte format was read. It does not establish protocol acceptance, an unspent balance, or completed reflection.</p>
   <h2>Transaction</h2>
   <dl class="kv">
     <dt>txid <span class="muted">· reveal</span></dt>

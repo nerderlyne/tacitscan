@@ -51,10 +51,10 @@ const initialTab: Tab = requestedTab === "tokens" ? "tokens" : "activity";
 const [activity, tokens, stats, utxos, duplicates] = await Promise.all([
   xonly
     ? getActivityByPubkey(network, xonly, 200)
-    : Promise.resolve([] as Awaited<ReturnType<typeof getActivityByPubkey>>),
+    : Promise.resolve([] as Awaited<ReturnType<typeof getActivityByPubkey>>[number][]),
   xonly
     ? getTokensByPubkey(network, xonly)
-    : Promise.resolve([] as Awaited<ReturnType<typeof getTokensByPubkey>>),
+    : Promise.resolve([] as Awaited<ReturnType<typeof getTokensByPubkey>>[number][]),
   fetchAddressStats(addr),
   fetchAddressUtxos(addr),
   getDuplicateTickers(network),

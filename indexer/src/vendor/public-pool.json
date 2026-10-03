@@ -1,0 +1,71 @@
+[
+  {
+    "type": "function",
+    "name": "createPair",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "assetA"
+      },
+      {
+        "type": "bytes32",
+        "name": "assetB"
+      },
+      {
+        "type": "uint32",
+        "name": "feeBps"
+      },
+      {
+        "type": "uint8",
+        "name": "rcptPrefix"
+      },
+      {
+        "type": "bytes32",
+        "name": "rcptX"
+      },
+      {
+        "type": "uint32",
+        "name": "protocolFeeBps"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "bytes32",
+        "name": "poolId"
+      }
+    ]
+  },
+  {
+    "type": "function",
+    "name": "createPairAndSettle",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "assetA"
+      },
+      {
+        "type": "bytes32",
+        "name": "assetB"
+      },
+      {
+        "type": "uint32",
+        "name": "feeBps"
+      },
+      {
+        "type": "bytes",
+        "name": "publicValues"
+      },
+      {
+        "type": "bytes",
+        "name": "proofBytes"
+      },
+      {
+        "type": "bytes[]",
+        "name": "memos"
+      }
+    ],
+    "outputs": []
+  }
+]

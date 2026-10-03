@@ -1,3 +1,4 @@
+import { decodeModern, type ModernEnvelope } from './modern-envelope.js';
 // Tacit envelope decoder. Pure functions on bytes.
 // Wire format reference: SPEC.md §5 (z0r0z/tacit).
 import { sha256 } from "@noble/hashes/sha256";
@@ -132,7 +133,7 @@ export function bytesToHex(b: Uint8Array): string {
 }
 
 export function hexToBytes(h: string): Uint8Array {
-  if (h.length % 2 !== 0) throw new Error("odd hex");
+  if (h.length % 2 !== 0 || !/^[0-9a-f]*$/i.test(h)) throw new Error("invalid hex");
   const out = new Uint8Array(h.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
   return out;
@@ -187,6 +188,7 @@ export interface CommitmentOut {
 }
 
 export type DecodedEnvelope =
+  | ModernEnvelope
   | { opcode: "CETCH"; payload: Uint8Array; ticker: string; decimals: number; commitmentC: Uint8Array; amountCt: Uint8Array; rangeproof: Uint8Array; mintAuthority: Uint8Array; imageUri: string }
   | { opcode: "CXFER"; payload: Uint8Array; assetId: string; kernelSig: Uint8Array; n: number; outputs: CommitmentOut[]; rangeproof: Uint8Array }
   | { opcode: "T_MINT"; payload: Uint8Array; assetId: string; etchTxid: string; commitmentC: Uint8Array; amountCt: Uint8Array; rangeproof: Uint8Array; issuerSig: Uint8Array }
@@ -253,6 +255,12 @@ export function extractTacitPayload(witnessScript: Uint8Array): Uint8Array | nul
   } catch {
     return null;
   }
+  // Enforce the current canonical leaf frame, including its closing opcode.
+  if (witnessScript[0] !== 32 || ops.length < 8) return null;
+  const [signer,checksig,zero,branch] = ops;
+  if (signer?.kind !== 'push' || signer.data.length !== 32 || checksig?.kind !== 'op' || checksig.opcode !== 0xac || zero?.kind !== 'push' || zero.data.length !== 0 || branch?.kind !== 'op' || branch.opcode !== 0x63) return null;
+  const end=ops[ops.length-1];
+  if(end?.kind !== 'op' || end.opcode !== 0x68 || ops.slice(4,-1).some(op=>op.kind!=='push')) return null;
   const pushes = extractEnvelopeFrame(ops);
   if (!pushes || pushes.length < 3) return null;
   if (!eq(pushes[0]!, MAGIC)) return null;
@@ -281,6 +289,8 @@ export function decodePayload(payload: Uint8Array): DecodeResult {
   const op = payload[0]!;
   const c = new Cursor(payload, 1);
   try {
+    const modern = decodeModern(payload);
+    if (modern) return { ok: true, rawPayload: payload, envelope: modern };
     let envelope: DecodedEnvelope;
     switch (op) {
       case OPCODES.CETCH:
@@ -701,15 +711,16 @@ function decodeTDclaim(payload: Uint8Array, c: Cursor): DecodedEnvelope {
 }
 
 // SPEC §5.7.9: T_AXFER_VAR wire shape — N=2, asset_input_count=1 tightened:
-//   asset_id(32) || asset_input_count(1)=0x01 || N(1)=0x02
+//   asset_id(32) || asset_input_count(1)=0x01 || kernel_sig(64) || N(1)=0x02
 //     || [commitment(33) || amount_ct(8)] × 2 || rp_len(2LE)
-//     || rangeproof(rp_len) || kernel_sig(64)
+//     || rangeproof(rp_len)
 function decodeTAxferVar(payload: Uint8Array, c: Cursor): DecodedEnvelope {
   const assetId = bytesToHex(c.takeBytes(32));
   const assetInputCount = c.takeU8();
   if (assetInputCount !== 1) {
     throw new Error(`T_AXFER_VAR asset_input_count must be 1, got ${assetInputCount}`);
   }
+  const kernelSig = c.takeBytes(64);
   const n = c.takeU8();
   if (n !== 2) {
     throw new Error(`T_AXFER_VAR N must be 2, got ${n}`);
@@ -729,7 +740,6 @@ function decodeTAxferVar(payload: Uint8Array, c: Cursor): DecodedEnvelope {
   }
   const rpLen = c.takeU16LE();
   const rangeproof = c.takeBytes(rpLen);
-  const kernelSig = c.takeBytes(64);
   return {
     opcode: "T_AXFER_VAR",
     payload,

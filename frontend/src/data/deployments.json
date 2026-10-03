@@ -1,0 +1,181 @@
+{
+  "revision": "7a917a8ec4dad72210351d80bcbf269073ac790d",
+  "contracts": [
+    {
+      "chainId": 1,
+      "address": "0x000000000ed1eabd231be41d93b719056f7febfc",
+      "name": "ConfidentialPool",
+      "family": "confidential",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x000000003f608bddf0ca45934003ffb9dbdf70db",
+      "name": "CollateralEngine",
+      "family": "collateral",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x00000000df8263ac5810c53b31aae20ee53c247f",
+      "name": "BtcCallExecutor",
+      "family": "bridge",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x00000000a26a6e291972666a9687741dba11af46",
+      "name": "EthCallOutbox",
+      "family": "bridge",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x20a6ddc2c6e620c6248b5a34e85996516fdd19d0",
+      "name": "BitcoinLightRelay",
+      "family": "reflection",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x000000008ecd09f922c9fbbdd9aca5ae8f0bebfa",
+      "name": "CbtcEscrowHelper",
+      "family": "collateral",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x000031c47cb61fab1ce2790a69625fabb71ede24",
+      "name": "FarmManager",
+      "family": "farm",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x2018139a8fdd3666855be3315c7683b4d6ab7aef",
+      "name": "WrappedTac",
+      "family": "token",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x4b4cb98d0c836c2783ac46f0078b904dab533ae8",
+      "name": "TacAirdrop",
+      "family": "airdrop",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0xa1313eb9f3a445606d9583bcac3ebeb56a858279",
+      "name": "ERC20",
+      "family": "token",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x23cacffac2674514a6d4f6cd420b4cc2ac921564",
+      "name": "ERC20",
+      "family": "token",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0xdf1d99148beb7a9aff1d95c49b3d22b7ed90d696",
+      "name": "ERC20",
+      "family": "token",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x000000c2a20657ce25f2ba99737933d031afbee9",
+      "name": "TacitEvmPool",
+      "family": "evm-pool",
+      "startBlock": 26069245
+    },
+    {
+      "chainId": 8453,
+      "address": "0x000000c2a20657ce25f2ba99737933d031afbee9",
+      "name": "TacitEvmPool",
+      "family": "evm-pool",
+      "startBlock": 51864014
+    },
+    {
+      "chainId": 4663,
+      "address": "0x000000c2a20657ce25f2ba99737933d031afbee9",
+      "name": "TacitEvmPool",
+      "family": "evm-pool",
+      "startBlock": 73991661
+    },
+    {
+      "chainId": 1,
+      "address": "0x00000000e36c7ec997cc59dcda9e03673b448119",
+      "name": "TacitPublicAmm",
+      "family": "amm",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x0000000042c2d57499df64baf81bfa2c6e100535",
+      "name": "CanonicalAssetFactory",
+      "family": "token",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x000000005da3e3b73726af3c774deeb9472d4992",
+      "name": "ConfidentialRouter",
+      "family": "bridge",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x000000009c28617ac88b52eae5efaacdd4ac34c3",
+      "name": "TacitRelayer",
+      "family": "confidential",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x6919cbef0e70affa02ae02c86c532a137154f250",
+      "name": "TacBuyback",
+      "family": "token",
+      "startBlock": 25998736
+    },
+    {
+      "chainId": 1,
+      "address": "0x0000006c96afa6f1cd4df8fe19bc0d8b6a6cd7b5",
+      "name": "TacitEvmPoolRouter",
+      "family": "evm-pool",
+      "startBlock": 26069246
+    },
+    {
+      "chainId": 8453,
+      "address": "0x0000006c96afa6f1cd4df8fe19bc0d8b6a6cd7b5",
+      "name": "TacitEvmPoolRouter",
+      "family": "evm-pool",
+      "startBlock": 51864015
+    },
+    {
+      "chainId": 4663,
+      "address": "0x0000006c96afa6f1cd4df8fe19bc0d8b6a6cd7b5",
+      "name": "TacitEvmPoolRouter",
+      "family": "evm-pool",
+      "startBlock": 73991692
+    },
+    {
+      "chainId": 1,
+      "address": "0x000000006fcb52aa67ac4a420a4d43a0e48f136f",
+      "name": "CbtcEscrowHelperTipForwarder",
+      "family": "collateral",
+      "startBlock": 25998736
+    }
+  ],
+  "assets": {
+    "tacAssetId": "0xf0bbe868af10c6c67652a99709bf32048d1aa7194efe3e9a1ef1bde43f94762b",
+    "cbtcAssetId": "0x62a20d98fc1cd20289621d1315294cb8772f934d822e404b71e1f471cf0679c8",
+    "cusdAssetId": "0x8f4490dd3728b0ee904d7a67c11b37ffd463a5c7f08b79810006995ee8a9679d",
+    "tethBitcoinId": "0x3cba71e1114af183cdeacc6b8457a474d17529fd28704480ca799d0d03126f34"
+  },
+  "reflectionConfirmations": 24,
+  "bitcoinAnchor": 967040
+}

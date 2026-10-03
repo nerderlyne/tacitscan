@@ -1,0 +1,29 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import ProtocolNav from '../../components/ProtocolNav.astro';
+import PublicFields from '../../components/PublicFields.astro';
+import { protocolStatus,protocolReadiness } from '../../lib/protocol-queries';
+import { PROTOCOL_REVISION } from '../../lib/protocol';
+const [{data,error},readiness]=await Promise.all([protocolStatus(),protocolReadiness()]);
+---
+<Layout title="Protocol status · tacitscan">
+  <h1>Protocol status</h1>
+  <p>Bitcoin, Ethereum, Base and Robinhood Chain. Indexed activity and reference state show their own progress and source.</p>
+  <ProtocolNav />
+  {error&&<p role="status">{error}</p>}
+  <p class="muted">Protocol reference: {PROTOCOL_REVISION.slice(0,8)}. Bitcoin reflection eligibility requires 24 confirmations; an indexed transaction may still be awaiting reflection.</p>
+  <h2>Upgrade readiness: {readiness.data.ready?'ready for staging review':'not ready'}</h2>
+  <p>{readiness.data.reason??'Coverage, validation backlog and canonical state reconciliation must all pass.'}</p>
+  <ul>{readiness.data.checks.map(c=><li><strong>{c.ready?'Pass':'Pending'} · {c.name}</strong>: {c.detail}</li>)}</ul>
+  <h2>Index progress</h2>
+  <table><thead><tr><th>Source</th><th>Indexed height</th><th>Last progress</th><th>Status</th></tr></thead><tbody>
+    {data.cursors.map(c=><tr><td>{c.source}</td><td>{c.height}</td><td>{new Date(c.updated_at).toISOString()}</td><td>{c.error??'Indexed through this checkpoint'}</td></tr>)}
+  </tbody></table>
+  {!data.cursors.length&&!error&&<p>No protocol index has published a checkpoint yet.</p>}
+  <h2>Reference state</h2>
+  {data.snapshots.map(s=><section>
+    <h3>{s.source} · {s.resource}</h3>
+    <p class="muted">Fetched {new Date(s.fetched_at).toISOString()} · {Date.now()-new Date(s.fetched_at).getTime()>180000?'Stale':'Recent'}{s.error?` · Refresh failed: ${s.error}`:''}</p>
+    <PublicFields value={s.body}/>
+  </section>)}
+</Layout>

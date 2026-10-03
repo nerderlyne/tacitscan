@@ -60,6 +60,7 @@ export function decodeScript(script: Uint8Array): ScriptOp[] {
         (script[i + 1]! << 8) |
         (script[i + 2]! << 16) |
         (script[i + 3]! << 24);
+      if (n < 0) throw new Error("oversized PUSHDATA4");
       i += 4;
       if (i + n > script.length) throw new Error("truncated PUSHDATA4 data");
       ops.push({ kind: "push", data: script.slice(i, i + n) });
@@ -140,8 +141,8 @@ export function extractEnvelopeFrame(ops: ScriptOp[]): Uint8Array[] | null {
         }
         pushes.push(o.data);
       }
-      // No matching ENDIF — malformed but we still return what we have.
-      return pushes;
+      // An unterminated frame is malformed.
+      return null;
     }
   }
   return null;

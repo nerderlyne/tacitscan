@@ -1,0 +1,54 @@
+# Separate, private accepted-state services. Does not modify render.yaml.
+services:
+  state-db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: tacit_state
+      POSTGRES_USER: tacit_state
+      POSTGRES_PASSWORD: ${STATE_DB_PASSWORD:?Set a private state database password}
+    volumes:
+      - state-db:/var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U tacit_state -d tacit_state]
+      interval: 5s
+      retries: 20
+  state:
+    build:
+      context: ..
+      dockerfile: runtime/Dockerfile.state
+    restart: unless-stopped
+    depends_on:
+      state-db:
+        condition: service_healthy
+    environment:
+      ETHEREUM_RPC_URL: ${ETHEREUM_RPC_URL:?Set the read RPC for cross-out replay}
+      PGHOST: state-db
+      PGPORT: 5432
+      PGUSER: tacit_state
+      PGDATABASE: tacit_state
+      PGPASSWORD: ${STATE_DB_PASSWORD}
+      BIND_HOST: 0.0.0.0
+      BITCOIN_NETWORK: ${BITCOIN_NETWORK:-mainnet}
+      START_HEIGHT: ${START_HEIGHT:-948241}
+      ESPLORA_URL: ${ESPLORA_URL:-https://mempool.space/api}
+      CONFIRMATION_DEPTH: ${CONFIRMATION_DEPTH:-3}
+    ports: ["127.0.0.1:8787:8787"]
+  pool:
+    build:
+      context: ..
+      dockerfile: runtime/Dockerfile.pool
+    restart: unless-stopped
+    depends_on: [state]
+    environment:
+      BIND_HOST: 0.0.0.0
+      BITCOIN_NETWORK: ${BITCOIN_NETWORK:-mainnet}
+      TACIT_REFERENCE_URL: http://state:8787
+      BTC_POOL_START_HEIGHT: ${BTC_POOL_START_HEIGHT:-948241}
+      BTC_POOL_CHECKPOINT: ${BTC_POOL_CHECKPOINT:?Set a reviewed checkpoint height:hash}
+      BTC_POOL_DB: /data/pool.db
+      CONFIRMATION_DEPTH: ${CONFIRMATION_DEPTH:-3}
+    volumes: ["pool-db:/data"]
+    ports: ["127.0.0.1:8788:8788"]
+volumes:
+  state-db:
+  pool-db:

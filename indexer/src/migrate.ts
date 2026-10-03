@@ -15,29 +15,19 @@ async function applySqlMigrations() {
   await db.execute(
     sql`CREATE TABLE IF NOT EXISTS _migrations (filename text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())`,
   );
-  const applied = new Set(
-    (
-      await db.execute<{ filename: string }>(sql`SELECT filename FROM _migrations`)
-    ).map((r) => r.filename),
-  );
-  const files = readdirSync(MIGRATIONS_DIR)
-    .filter((f) => f.endsWith(".sql"))
-    .sort();
-  for (const f of files) {
-    if (applied.has(f)) {
-      console.log(`skip ${f} (already applied)`);
-      continue;
-    }
-    console.log(`apply ${f}`);
-    const content = readFileSync(join(MIGRATIONS_DIR, f), "utf8");
-    const stmts = content
-      .split(/--\s*>?\s*statement-breakpoint|;\s*\n\s*\n/)
-      .map((s) => s.trim())
-      .filter(Boolean);
-    for (const stmt of stmts) {
-      await db.execute(sql.raw(stmt));
-    }
-    await db.execute(sql`INSERT INTO _migrations (filename) VALUES (${f})`);
+  const files = readdirSync(MIGRATIONS_DIR).filter(f => f.endsWith(".sql")).sort();
+  for (const filename of files) {
+    await db.transaction(async t => {
+      await t.execute(sql`SET LOCAL lock_timeout = '5s'`);
+      await t.execute(sql`SELECT pg_advisory_xact_lock(81419)`);
+      const applied = await t.execute(sql`SELECT 1 FROM _migrations WHERE filename=${filename}`);
+      if (applied.length) return;
+      console.log(`apply ${filename}`);
+      const content = readFileSync(join(MIGRATIONS_DIR, filename), "utf8");
+      const statements = content.split(/--\s*>?\s*statement-breakpoint|;\s*\n\s*\n/).map(s=>s.trim()).filter(Boolean);
+      for (const statement of statements) await t.execute(sql.raw(statement));
+      await t.execute(sql`INSERT INTO _migrations(filename) VALUES(${filename})`);
+    });
   }
 }
 
@@ -74,7 +64,7 @@ async function backfillCorrectAssetIds() {
 
 async function main() {
   await applySqlMigrations();
-  await backfillCorrectAssetIds();
+  if (process.env.LEGACY_ASSET_ID_REPAIR_ENABLED === "true") await backfillCorrectAssetIds();
   console.log("done");
   process.exit(0);
 }

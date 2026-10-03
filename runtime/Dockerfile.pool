@@ -1,0 +1,16 @@
+# Node 22 matches the native SQLite dependency generation pinned below.
+FROM node:22-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 make g++ gosu && rm -rf /var/lib/apt/lists/*
+ARG TACIT_REVISION=7a917a8ec4dad72210351d80bcbf269073ac790d
+RUN git init /opt/tacit && git -C /opt/tacit remote add origin https://github.com/z0r0z/tacit.git && git -C /opt/tacit fetch --depth=1 origin ${TACIT_REVISION} && git -C /opt/tacit checkout --detach FETCH_HEAD && test "$(git -C /opt/tacit rev-parse HEAD)" = "${TACIT_REVISION}"
+COPY runtime/worker/package.json runtime/worker/package-lock.json /opt/tacit/worker/
+RUN cd /opt/tacit/worker && npm ci --omit=dev --ignore-scripts
+# Reviewed exact dependencies and transitive integrity hashes.
+COPY runtime/relay/package.json runtime/relay/package-lock.json /opt/tacit/worker-relay/
+RUN cd /opt/tacit/worker-relay && npm ci --omit=dev --ignore-scripts && npm_config_build_from_source=true npm rebuild better-sqlite3
+COPY runtime/pool-service.mjs /app/pool-service.mjs
+COPY runtime/pool-entrypoint.sh /app/pool-entrypoint.sh
+RUN mkdir /data && chown node:node /data
+ENV TACIT_SOURCE_DIR=/opt/tacit PORT=8788 NODE_ENV=production BIND_HOST=0.0.0.0
+ENTRYPOINT ["sh","/app/pool-entrypoint.sh"]
+CMD ["node","--max-old-space-size=1536","/app/pool-service.mjs"]

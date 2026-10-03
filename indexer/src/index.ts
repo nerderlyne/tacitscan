@@ -1,3 +1,6 @@
+import { runAcceptedState } from './accepted-state.js';
+import { runEvmIndexer } from './evm.js';
+import { runReferences } from './reference.js';
 import { runIndexer } from "./indexer.js";
 import { runResolver } from "./resolver.js";
 import { runValidator } from "./validator.js";
@@ -24,7 +27,7 @@ import { backfillCommitTxid } from "./backfill-commit-txid.js";
 backfillSpendingPubkey().catch((e) => {
   console.error("[backfill-spending-pubkey] failed (continuing):", e);
 });
-backfillRedecode().catch((e) => {
+if (process.env.LEGACY_REDECODE_ENABLED === "true") backfillRedecode().catch((e) => {
   console.error("[backfill-redecode] failed (continuing):", e);
 });
 backfillCommitTxid().catch((e) => {
@@ -34,7 +37,18 @@ backfillCommitTxid().catch((e) => {
 // If the indexer crashes the process exits and Railway restarts us —
 // partial progress is checkpointed in DB. The auxiliary loops are caught
 // so a flaky external dep can't take down the indexer.
+const extensions: Promise<unknown>[] = [];
+if(process.env.ACCEPTED_STATE_ENABLED==='true') {
+  if(process.env.PARITY_INDEXING_ENABLED!=='true'||process.env.REFERENCE_INDEXING_ENABLED!=='true'||!process.env.BTC_POOL_REFERENCE_URL||!process.env.TACIT_REFERENCE_URL) throw new Error('Accepted-state indexing requires protocol indexing and both private reference services');
+  extensions.push(runAcceptedState());
+}
+if (process.env.REFERENCE_INDEXING_ENABLED === 'true') extensions.push(runReferences());
+if (process.env.EVM_INDEXING_ENABLED === 'true') for (const chain of [1,8453,4663]) {
+  const url=process.env[`EVM_RPC_URL_${chain}`];
+  if(url) extensions.push(runEvmIndexer(chain,url));
+}
 Promise.all([
+  ...extensions,
   runIndexer(),
   runMempoolPoller().catch((e) => {
     console.error("[mempool] crashed (continuing without it):", e);

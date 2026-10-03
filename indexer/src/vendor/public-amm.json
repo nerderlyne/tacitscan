@@ -1,0 +1,190 @@
+[
+  {
+    "type": "function",
+    "name": "createPairAndAddLiquidityPublic",
+    "stateMutability": "payable",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "assetA"
+      },
+      {
+        "type": "bytes32",
+        "name": "assetB"
+      },
+      {
+        "type": "uint32",
+        "name": "feeBps"
+      },
+      {
+        "type": "uint256",
+        "name": "amountA"
+      },
+      {
+        "type": "uint256",
+        "name": "amountB"
+      },
+      {
+        "type": "uint256",
+        "name": "minSharesOut"
+      },
+      {
+        "type": "uint64",
+        "name": "deadline"
+      },
+      {
+        "type": "address",
+        "name": "to"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "sharesMinted"
+      }
+    ]
+  },
+  {
+    "type": "function",
+    "name": "removeLiquidityPublic",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "assetA"
+      },
+      {
+        "type": "bytes32",
+        "name": "assetB"
+      },
+      {
+        "type": "uint32",
+        "name": "feeBps"
+      },
+      {
+        "type": "uint256",
+        "name": "shares"
+      },
+      {
+        "type": "uint256",
+        "name": "minAmountA"
+      },
+      {
+        "type": "uint256",
+        "name": "minAmountB"
+      },
+      {
+        "type": "uint64",
+        "name": "deadline"
+      },
+      {
+        "type": "address",
+        "name": "to"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "amountLo"
+      },
+      {
+        "type": "uint256",
+        "name": "amountHi"
+      }
+    ]
+  },
+  {
+    "type": "function",
+    "name": "removeLiquidityPublicFrom",
+    "stateMutability": "nonpayable",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "assetA"
+      },
+      {
+        "type": "bytes32",
+        "name": "assetB"
+      },
+      {
+        "type": "uint32",
+        "name": "feeBps"
+      },
+      {
+        "type": "uint256",
+        "name": "shares"
+      },
+      {
+        "type": "uint256",
+        "name": "minAmountA"
+      },
+      {
+        "type": "uint256",
+        "name": "minAmountB"
+      },
+      {
+        "type": "uint64",
+        "name": "deadline"
+      },
+      {
+        "type": "address",
+        "name": "owner"
+      },
+      {
+        "type": "address",
+        "name": "to"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "amountLo"
+      },
+      {
+        "type": "uint256",
+        "name": "amountHi"
+      }
+    ]
+  },
+  {
+    "type": "function",
+    "name": "swapPublic",
+    "stateMutability": "payable",
+    "inputs": [
+      {
+        "type": "bytes32",
+        "name": "assetIn"
+      },
+      {
+        "type": "bytes32",
+        "name": "assetOut"
+      },
+      {
+        "type": "uint32",
+        "name": "feeBps"
+      },
+      {
+        "type": "uint256",
+        "name": "amountIn"
+      },
+      {
+        "type": "uint256",
+        "name": "minAmountOut"
+      },
+      {
+        "type": "uint64",
+        "name": "deadline"
+      },
+      {
+        "type": "address",
+        "name": "to"
+      }
+    ],
+    "outputs": [
+      {
+        "type": "uint256",
+        "name": "amountOut"
+      }
+    ]
+  }
+]

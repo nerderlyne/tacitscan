@@ -1,0 +1,1765 @@
+{
+  "ERC20": [
+    {
+      "type": "event",
+      "name": "Transfer",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "from",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "value",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Approval",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "owner",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "spender",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "value",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "ContractURIUpdated",
+      "anonymous": false,
+      "inputs": []
+    }
+  ],
+  "ConfidentialPool": [
+    {
+      "type": "event",
+      "name": "AssetRegistered",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "assetId",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "underlying",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "unitScale",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "indexed": false
+        },
+        {
+          "name": "symbol",
+          "type": "string",
+          "indexed": false
+        },
+        {
+          "name": "decimals",
+          "type": "uint8",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Wrap",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "depositId",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "assetId",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "LeavesInserted",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "firstLeafIndex",
+          "type": "uint256",
+          "indexed": true
+        },
+        {
+          "name": "leaves",
+          "type": "bytes32[]",
+          "indexed": false
+        },
+        {
+          "name": "memos",
+          "type": "bytes[]",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "NullifiersSpent",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "nullifiers",
+          "type": "bytes32[]",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "LockLeavesInserted",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "firstLockIndex",
+          "type": "uint256",
+          "indexed": true
+        },
+        {
+          "name": "lockLeaves",
+          "type": "bytes32[]",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "CrossOutRecorded",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "claimId",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "destChain",
+          "type": "uint16",
+          "indexed": false
+        },
+        {
+          "name": "destCommitment",
+          "type": "bytes32",
+          "indexed": false
+        },
+        {
+          "name": "nullifier",
+          "type": "bytes32",
+          "indexed": false
+        },
+        {
+          "name": "assetId",
+          "type": "bytes32",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "BitcoinNotesConsumed",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "nullifiers",
+          "type": "bytes32[]",
+          "indexed": false
+        },
+        {
+          "name": "spendRoot",
+          "type": "bytes32",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "CdpPositionInserted",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "leaf",
+          "type": "bytes32",
+          "indexed": true
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "GenerationRetired",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "successor",
+          "type": "address",
+          "indexed": true
+        }
+      ]
+    }
+  ],
+  "CollateralEngine": [
+    {
+      "type": "event",
+      "name": "FeedsSet",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "wstEthBtcFeed",
+          "type": "address",
+          "indexed": false
+        },
+        {
+          "name": "btcUsdFeed",
+          "type": "address",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "ParamsSet",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "maxStaleness",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "escrowRatioBps",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "cdpRatioBps",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "liqRatioBps",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "EscrowPosted",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "outpoint",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "from",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "EscrowReleased",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "outpoint",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "EscrowSlashed",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "outpoint",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "toReserve",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "EscrowHealthParamsSet",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "maintenanceBps",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "graceWindow",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "EscrowEnforcementModuleSet",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "module",
+          "type": "address",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "EscrowFlaggedUnhealthy",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "outpoint",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "atTime",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "EscrowFlagCleared",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "outpoint",
+          "type": "bytes32",
+          "indexed": true
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "EscrowEnforced",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "outpoint",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "CdpMinted",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "positionLeaf",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "debtValue",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "collateralUsd",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "CdpClosed",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "positionNullifier",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "debtValue",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "CdpLiquidated",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "positionNullifier",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "debtValue",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "collateralUsd",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "CdpToppedUp",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "oldPositionNullifier",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "newPositionLeaf",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "debtValue",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "oldCollateralUsd",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "newCollateralUsd",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "StabilityFeeSet",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "perSecondRay",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Dripped",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "rate",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "atTime",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "CdpFeeAccrued",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "positionNullifier",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "fee",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "SavingsSharesChanged",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "totalSavingsShares",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "SavingsHarvested",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "reward",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "feeBudgetRemaining",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "SurplusDrawAuthorized",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "destCommitment",
+          "type": "bytes32",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "SurplusDrawn",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "destCommitment",
+          "type": "bytes32",
+          "indexed": false
+        },
+        {
+          "name": "feeBudgetRemaining",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "InsuranceFunded",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "from",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "InsuranceDrawn",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "InsuranceDrawnFor",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "purpose",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "SeizedCbtcRecovered",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "token",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "OwnershipTransferred",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "oldOwner",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "newOwner",
+          "type": "address",
+          "indexed": true
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "OwnershipHandoverRequested",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "pendingOwner",
+          "type": "address",
+          "indexed": true
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "OwnershipHandoverCanceled",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "pendingOwner",
+          "type": "address",
+          "indexed": true
+        }
+      ]
+    }
+  ],
+  "BtcCallExecutor": [
+    {
+      "type": "event",
+      "name": "BtcCallExecuted",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "callId",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "target",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "callerPubkey",
+          "type": "bytes32",
+          "indexed": false
+        }
+      ]
+    }
+  ],
+  "EthCallOutbox": [
+    {
+      "type": "event",
+      "name": "EthMessageSent",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "msgId",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "destChain",
+          "type": "uint16",
+          "indexed": false
+        },
+        {
+          "name": "ns",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "sender",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "index",
+          "type": "uint64",
+          "indexed": false
+        },
+        {
+          "name": "payload",
+          "type": "bytes",
+          "indexed": false
+        }
+      ]
+    }
+  ],
+  "BitcoinLightRelay": [
+    {
+      "type": "event",
+      "name": "Genesis",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "epoch",
+          "type": "uint256",
+          "indexed": true
+        },
+        {
+          "name": "target",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "tipHash",
+          "type": "bytes32",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "TipAdvanced",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "newTip",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "newHeight",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "newWork",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "AnchorHistorySeeded",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "anchor",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "anchorTimestamp",
+          "type": "uint32",
+          "indexed": false
+        },
+        {
+          "name": "ancestors",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    }
+  ],
+  "CbtcEscrowHelper": [
+    {
+      "type": "event",
+      "name": "HelperEscrowPosted",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "outpoint",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "depositor",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "HelperEscrowStaked",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "outpoint",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "depositor",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "ethIn",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "wstEthOut",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "HelperEscrowReclaimed",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "outpoint",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "depositor",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    }
+  ],
+  "FarmManager": [
+    {
+      "type": "event",
+      "name": "PoolAdded",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "pid",
+          "type": "uint256",
+          "indexed": true
+        },
+        {
+          "name": "stakeAsset",
+          "type": "bytes32",
+          "indexed": false
+        },
+        {
+          "name": "allocPoint",
+          "type": "uint32",
+          "indexed": false
+        },
+        {
+          "name": "lockDuration",
+          "type": "uint64",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "AllocSet",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "pid",
+          "type": "uint256",
+          "indexed": true
+        },
+        {
+          "name": "allocPoint",
+          "type": "uint32",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "ConfigQueued",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "eta",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "ConfigCancelled",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "id",
+          "type": "bytes32",
+          "indexed": true
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "RewardNotified",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "reward",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "rate",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "periodFinish",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Recovered",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Funded",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "funder",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "value",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Bonded",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "receipt",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "pid",
+          "type": "uint256",
+          "indexed": true
+        },
+        {
+          "name": "shares",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "unlockAt",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Harvested",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "receipt",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "pid",
+          "type": "uint256",
+          "indexed": true
+        },
+        {
+          "name": "reward",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Unbonded",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "receipt",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "pid",
+          "type": "uint256",
+          "indexed": true
+        },
+        {
+          "name": "shares",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "GovProposed",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "pending",
+          "type": "address",
+          "indexed": true
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "GovAccepted",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "gov",
+          "type": "address",
+          "indexed": true
+        }
+      ]
+    }
+  ],
+  "WrappedTac": [
+    {
+      "type": "event",
+      "name": "Deposit",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "from",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Withdraw",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "from",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Transfer",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "from",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "value",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Approval",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "owner",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "spender",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "value",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "ContractURIUpdated",
+      "anonymous": false,
+      "inputs": []
+    }
+  ],
+  "TacAirdrop": [
+    {
+      "type": "event",
+      "name": "Claimed",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "index",
+          "type": "uint256",
+          "indexed": true
+        },
+        {
+          "name": "account",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Swept",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "TokenSwept",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "token",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "PausedSet",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "paused",
+          "type": "bool",
+          "indexed": false
+        }
+      ]
+    }
+  ],
+  "TacitEvmPool": [
+    {
+      "type": "event",
+      "name": "Transact",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "nf0",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "nf1",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "outLeaf0",
+          "type": "bytes32",
+          "indexed": false
+        },
+        {
+          "name": "outLeaf1",
+          "type": "bytes32",
+          "indexed": false
+        },
+        {
+          "name": "firstIndex",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "newRoot",
+          "type": "bytes32",
+          "indexed": false
+        },
+        {
+          "name": "recipient",
+          "type": "address",
+          "indexed": false
+        },
+        {
+          "name": "extAmount",
+          "type": "int256",
+          "indexed": false
+        },
+        {
+          "name": "relayer",
+          "type": "address",
+          "indexed": false
+        },
+        {
+          "name": "fee",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "memo0",
+          "type": "bytes",
+          "indexed": false
+        },
+        {
+          "name": "memo1",
+          "type": "bytes",
+          "indexed": false
+        }
+      ]
+    }
+  ],
+  "TacitPublicAmm": [],
+  "CanonicalAssetFactory": [
+    {
+      "type": "event",
+      "name": "Deployed",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "assetId",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "token",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "minter",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "symbol",
+          "type": "string",
+          "indexed": false
+        },
+        {
+          "name": "decimals",
+          "type": "uint8",
+          "indexed": false
+        },
+        {
+          "name": "cid",
+          "type": "bytes32",
+          "indexed": false
+        }
+      ]
+    }
+  ],
+  "ConfidentialRouter": [],
+  "TacitRelayer": [
+    {
+      "type": "event",
+      "name": "Relayed",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "relayer",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "to",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "submitted",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "landed",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    }
+  ],
+  "TacBuyback": [
+    {
+      "type": "event",
+      "name": "Bought",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "venue",
+          "type": "uint8",
+          "indexed": true
+        },
+        {
+          "name": "ethIn",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "tacOut",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Flushed",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "ethOut",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    }
+  ],
+  "TacitEvmPoolRouter": [
+    {
+      "type": "event",
+      "name": "DepositBoxCompleted",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "box",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "completer",
+          "type": "address",
+          "indexed": true
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "CallExecuted",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "escrow",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "caller",
+          "type": "address",
+          "indexed": true
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "DepositFunded",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "box",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "intent",
+          "type": "tuple",
+          "components": [
+            {
+              "name": "amount",
+              "type": "uint256"
+            },
+            {
+              "name": "outLeaf0",
+              "type": "uint256"
+            },
+            {
+              "name": "outLeaf1",
+              "type": "uint256"
+            },
+            {
+              "name": "memo0Hash",
+              "type": "bytes32"
+            },
+            {
+              "name": "memo1Hash",
+              "type": "bytes32"
+            },
+            {
+              "name": "refund",
+              "type": "address"
+            },
+            {
+              "name": "deadline",
+              "type": "uint64"
+            },
+            {
+              "name": "nonce",
+              "type": "uint256"
+            }
+          ],
+          "indexed": false
+        },
+        {
+          "name": "hint",
+          "type": "bytes",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "ReceiveFunded",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "box",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "npk",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "feeBps",
+          "type": "uint16",
+          "indexed": false
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "WrapBoxCompleted",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "box",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "completer",
+          "type": "address",
+          "indexed": true
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "BoxReclaimed",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "box",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "refund",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    },
+    {
+      "type": "event",
+      "name": "Received",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "box",
+          "type": "address",
+          "indexed": true
+        },
+        {
+          "name": "n",
+          "type": "uint256",
+          "indexed": true
+        },
+        {
+          "name": "index",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "value",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "rho",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "fee",
+          "type": "uint256",
+          "indexed": false
+        }
+      ]
+    }
+  ],
+  "CbtcEscrowHelperTipForwarder": [
+    {
+      "type": "event",
+      "name": "EscrowSettledWithTip",
+      "anonymous": false,
+      "inputs": [
+        {
+          "name": "outpoint",
+          "type": "bytes32",
+          "indexed": true
+        },
+        {
+          "name": "stakeAmount",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "tip",
+          "type": "uint256",
+          "indexed": false
+        },
+        {
+          "name": "tipRecipient",
+          "type": "address",
+          "indexed": true
+        }
+      ]
+    }
+  ],
+  "CanonicalBridgedERC20": [
+    {
+      "type": "event",
+      "name": "ContractURIUpdated",
+      "anonymous": false,
+      "inputs": []
+    }
+  ]
+}

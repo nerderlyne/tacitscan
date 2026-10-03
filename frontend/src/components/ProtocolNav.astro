@@ -1,0 +1,8 @@
+---
+import { sections } from '../lib/protocol-queries';
+---
+<nav class="protocol-nav" aria-label="Protocol views">
+  <a href="/protocol">Status</a>
+  {Object.entries(sections).map(([path,label])=><a href={`/protocol/${path}`}>{label}</a>)}
+</nav>
+<style>.protocol-nav{display:flex;gap:16px;flex-wrap:wrap;margin:20px 0;font-size:13px;}</style>

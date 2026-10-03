@@ -1,0 +1,11 @@
+FROM node:24-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
+ARG TACIT_REVISION=7a917a8ec4dad72210351d80bcbf269073ac790d
+RUN git init /opt/tacit && git -C /opt/tacit remote add origin https://github.com/z0r0z/tacit.git && git -C /opt/tacit fetch --depth=1 origin ${TACIT_REVISION} && git -C /opt/tacit checkout --detach FETCH_HEAD && test "$(git -C /opt/tacit rev-parse HEAD)" = "${TACIT_REVISION}"
+COPY runtime/worker/package.json runtime/worker/package-lock.json /opt/tacit/worker/
+COPY runtime/server/package.json runtime/server/package-lock.json /opt/tacit/server/
+RUN cd /opt/tacit/worker && npm ci --omit=dev --ignore-scripts && cd /opt/tacit/server && npm ci --omit=dev --ignore-scripts
+COPY runtime/state-service.mjs runtime/postgres-kv.mjs /app/
+ENV TACIT_SOURCE_DIR=/opt/tacit PORT=8787 NODE_ENV=production BIND_HOST=0.0.0.0
+USER node
+CMD ["node","--max-old-space-size=640","/app/state-service.mjs"]
