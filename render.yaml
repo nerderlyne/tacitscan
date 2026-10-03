@@ -43,10 +43,12 @@ services:
   - type: worker
     name: tacitscan-indexer
     runtime: docker
-    plan: standard
+    plan: starter
     region: ohio
+    rootDir: .
     dockerfilePath: ./runtime/Dockerfile.worker
     dockerContext: .
+    dockerCommand: sh /app/pool-entrypoint.sh node /app/worker-supervisor.mjs
     disk:
       name: tacitscan-writer
       mountPath: /var/data

@@ -66,7 +66,8 @@ The worker uses `runtime/Dockerfile.worker` to run three supervised processes:
 indexer rollout, canonical replay and pool verification. The adapters bind only
 to localhost. Canonical state is isolated in the `tacitscan_canonical` schema in
 the existing database; pool SQLite persists on the worker's 10 GB disk. No extra
-Render service or database is declared. Worker compute and disk charges change.
+Render service or database is declared. The worker retains its original starter
+compute plan. Its persistent disk is an additional billed resource.
 Frontend and worker deployments remain independent.
 
 ### One-time Render setup before the first push

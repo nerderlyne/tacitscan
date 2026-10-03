@@ -133,7 +133,7 @@ Ethereum needs historical call tracing. Credentials stay in Render.
 The indexer automatically migrates and resumes historical repair before live
 ingestion. Protocol views activate only after a fresh readiness report passes;
 existing Bitcoin pages remain available while indexes catch up. Worker deployments
-stop the old writer before starting the new one. The worker compute upgrade and persistent disk incur Render charges; monitor
+stop the old writer before starting the new one. The worker retains the original starter compute plan. Its new persistent disk incurs Render charges; monitor
 worker memory and database capacity as history grows.
 
 See [the rollout guide](docs/protocol-rollout.md#push-to-main-deployment) for
