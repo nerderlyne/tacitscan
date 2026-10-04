@@ -1,0 +1,42 @@
+---
+interface Props { assetId: string; decimals: number; ticker: string }
+const { assetId, decimals, ticker } = Astro.props;
+---
+<section class="etch-meta" data-asset-metadata={assetId} data-decimals={decimals} data-ticker={ticker} style="margin-top:24px">
+  <h2>Etch metadata</h2>
+  <p class="muted" data-media-status>Loading issuer-published metadata…</p>
+  <p class="muted">Off-chain issuer data. A published supply opening is not independently verified here.</p>
+  <dl class="kv" data-media-fields></dl>
+  <noscript>Enable JavaScript to load off-chain metadata. On-chain fields are shown above.</noscript>
+</section>
+<script>
+  import { loadAssetMedia } from '../lib/media-client';
+  import { formatRevealedSupply } from '../lib/etch-metadata';
+  for (const section of document.querySelectorAll<HTMLElement>('[data-asset-metadata]')) {
+    const status = section.querySelector<HTMLElement>('[data-media-status]')!;
+    const fields = section.querySelector<HTMLElement>('[data-media-fields]')!;
+    const add = (name: string, value: unknown, link = false) => {
+      if (typeof value !== 'string' && typeof value !== 'number') return;
+      const dt = document.createElement('dt'); dt.textContent = name;
+      const dd = document.createElement('dd'); dd.style.overflowWrap = 'anywhere';
+      if (link) {
+        try { const url = new URL(String(value)); if (url.protocol !== 'https:') return; } catch { return; }
+        const a = document.createElement('a'); a.href = String(value); a.textContent = String(value); a.rel = 'noreferrer'; a.target = '_blank'; dd.append(a);
+      } else dd.textContent = String(value);
+      fields.append(dt, dd);
+    };
+    loadAssetMedia(section.dataset.assetMetadata!).then(({ metadata: m, sourceUrl }) => {
+      status.textContent = m ? 'Issuer-published metadata loaded.' : 'This asset points directly to an image.';
+      if (!m) return;
+      add('name', m.name); add('description', m.description); add('external link', m.external_url, true);
+      if (typeof m.decimals === 'number') add('declared decimals', `${m.decimals}${m.decimals !== Number(section.dataset.decimals) ? ' — differs from on-chain decimals' : ''}`);
+      if (m.tacit_attest && typeof m.tacit_attest === 'object') {
+        const attest = m.tacit_attest as Record<string, unknown>;
+        const supply = typeof attest.supply === 'string' ? formatRevealedSupply(attest.supply, Number(section.dataset.decimals)) : null;
+        add('supply (issuer revealed)', supply ? `${supply} ${section.dataset.ticker}` : undefined);
+        add('commitment (issuer published)', attest.commitment); add('blinding (issuer published)', attest.blinding);
+      }
+      add('raw metadata', sourceUrl, true);
+    }).catch(() => { status.textContent = 'Metadata is temporarily unavailable. Reload to retry.'; });
+  }
+</script>

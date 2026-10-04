@@ -1,4 +1,5 @@
 ---
+import { cached } from "../lib/cache";
 import Layout from "../layouts/Layout.astro";
 import { getRecentEnvelopes, getCursor, getDuplicateTickers, getRecentBlocks } from "../lib/queries";
 import { sql, desc, eq } from "drizzle-orm";
@@ -10,16 +11,15 @@ import AssetMark from "../components/AssetMark.astro";
 
 const network = import.meta.env.PUBLIC_NETWORK ?? "mainnet";
 
-const [recent, cursor, statsRow, recentAssets, tip, duplicates, recentBlocks] = await Promise.all([
+const [recent, cursor, statsRow, recentAssets, tip, duplicates, recentBlocks] = await cached(`homepage:${network}`, 10000, () => Promise.all([
   getRecentEnvelopes(10),
   getCursor(network),
-  db.execute<{ assets: number; envelopes: number; cetch: number; t_petch: number; minted: string }>(sql`
+  db.execute<{ assets: number; envelopes: number; cetch: number; t_petch: number }>(sql`
     SELECT
       (SELECT COUNT(*) FROM assets WHERE network = ${network})::int AS assets,
       (SELECT COUNT(*) FROM envelopes WHERE network = ${network})::int AS envelopes,
       (SELECT COUNT(*) FROM assets WHERE network = ${network} AND kind = 'cetch')::int AS cetch,
-      (SELECT COUNT(*) FROM assets WHERE network = ${network} AND kind = 't_petch')::int AS t_petch,
-      (SELECT COALESCE(SUM(public_amount), 0)::text FROM envelopes WHERE network = ${network} AND opcode = 'T_PMINT' AND status = 'ok') AS minted
+      (SELECT COUNT(*) FROM assets WHERE network = ${network} AND kind = 't_petch')::int AS t_petch
   `),
   db
     .select()
@@ -30,9 +30,9 @@ const [recent, cursor, statsRow, recentAssets, tip, duplicates, recentBlocks] = 
   fetchChainTip(),
   getDuplicateTickers(network),
   getRecentBlocks(network, 10),
-]);
+]));
 
-const s = statsRow[0] ?? { assets: 0, envelopes: 0, cetch: 0, t_petch: 0, minted: "0" };
+const s = statsRow[0] ?? { assets: 0, envelopes: 0, cetch: 0, t_petch: 0 };
 
 const lag = tip !== null && cursor ? Math.max(0, tip - cursor.lastIndexedHeight) : null;
 const syncState =

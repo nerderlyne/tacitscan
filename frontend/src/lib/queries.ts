@@ -1,13 +1,13 @@
+import { cached } from "./cache";
 import { TRANSFER_OPS } from "./protocol";
 const NETWORK = import.meta.env.PUBLIC_NETWORK ?? "mainnet";
 import { and, desc, eq, ilike, or, sql, inArray } from "drizzle-orm";
 import { db, schema } from "../db";
 
 export async function getRecentEnvelopes(limit = 25) {
-  // Order: mempool (first_seen DESC) before confirmed (block_height DESC,
-  // tx_index DESC). COALESCE collapses both cases into a single sort key.
-  // Orphaned rows are excluded — they're surfaced via deep links only.
-  return db
+  // Split mempool/confirmed reads so confirmed rows use the existing
+  // (network, block_height) index instead of sorting all history by CASE.
+  const query = (status: string) => db
     .select({
       txid: schema.envelopes.txid,
       opcode: schema.envelopes.opcode,
@@ -23,14 +23,12 @@ export async function getRecentEnvelopes(limit = 25) {
     })
     .from(schema.envelopes)
     .leftJoin(schema.assets, eq(schema.envelopes.assetId, schema.assets.assetId))
-    .where(and(eq(schema.envelopes.network, NETWORK), or(eq(schema.envelopes.chainStatus, "confirmed"), eq(schema.envelopes.chainStatus, "mempool"))))
-    .orderBy(
-      sql`CASE WHEN ${schema.envelopes.chainStatus} = 'mempool' THEN 0 ELSE 1 END`,
-      desc(schema.envelopes.blockHeight),
-      desc(schema.envelopes.txIndex),
-      desc(schema.envelopes.firstSeenAt),
-    )
-    .limit(limit);
+    .where(and(eq(schema.envelopes.network, NETWORK), eq(schema.envelopes.chainStatus, status)));
+  const [mempool, confirmed] = await Promise.all([
+    query('mempool').orderBy(desc(schema.envelopes.firstSeenAt)).limit(limit),
+    query('confirmed').orderBy(desc(schema.envelopes.blockHeight), desc(schema.envelopes.txIndex)).limit(limit),
+  ]);
+  return [...mempool, ...confirmed].slice(0, limit);
 }
 
 export async function getAssetsDirectory(opts: { limit?: number; offset?: number; q?: string } = {}) {
@@ -657,16 +655,12 @@ export async function getRecentBlocks(network: string, limit = 10): Promise<Bloc
       b.block_hash,
       b.block_time,
       COALESCE(ec.cnt, 0)::int AS envelope_count
-    FROM blocks b
-    LEFT JOIN (
-      SELECT network, block_height, COUNT(*)::int AS cnt
-      FROM envelopes
-      WHERE network = ${network} AND chain_status = 'confirmed'
-      GROUP BY network, block_height
-    ) ec ON ec.network = b.network AND ec.block_height = b.height
-    WHERE b.network = ${network}
-    ORDER BY b.height DESC
-    LIMIT ${limit}
+    FROM (SELECT height,block_hash,block_time FROM blocks
+      WHERE network=${network} ORDER BY height DESC LIMIT ${limit}) b
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS cnt FROM envelopes
+      WHERE network=${network} AND chain_status='confirmed' AND block_height=b.height
+    ) ec ON true ORDER BY b.height DESC
   `);
   return rows.map((r) => ({
     height: r.height,
@@ -689,16 +683,12 @@ export async function getBlocksPage(network: string, opts: { limit?: number; off
       b.block_hash,
       b.block_time,
       COALESCE(ec.cnt, 0)::int AS envelope_count
-    FROM blocks b
-    LEFT JOIN (
-      SELECT network, block_height, COUNT(*)::int AS cnt
-      FROM envelopes
-      WHERE network = ${network} AND chain_status = 'confirmed'
-      GROUP BY network, block_height
-    ) ec ON ec.network = b.network AND ec.block_height = b.height
-    WHERE b.network = ${network}
-    ORDER BY b.height DESC
-    LIMIT ${limit} OFFSET ${offset}
+    FROM (SELECT height,block_hash,block_time FROM blocks
+      WHERE network=${network} ORDER BY height DESC LIMIT ${limit} OFFSET ${offset}) b
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS cnt FROM envelopes
+      WHERE network=${network} AND chain_status='confirmed' AND block_height=b.height
+    ) ec ON true ORDER BY b.height DESC
   `);
   return rows.map((r) => ({
     height: r.height,
@@ -719,6 +709,7 @@ export async function getBlocksCount(network: string): Promise<number> {
 // Caller can quickly check `dups.has(ticker)` to decide whether to render
 // `TICKER` or `TICKER#fragment`.
 export async function getDuplicateTickers(network: string): Promise<Set<string>> {
+  return cached(`duplicate-tickers:${network}`, 30000, async () => {
   const rows = await db.execute<{ ticker: string }>(sql`
     SELECT ticker FROM assets
     WHERE network = ${network}
@@ -726,4 +717,5 @@ export async function getDuplicateTickers(network: string): Promise<Set<string>>
     HAVING COUNT(*) > 1
   `);
   return new Set(rows.map((r) => r.ticker));
+  });
 }

@@ -5,9 +5,9 @@ import * as schema from "./schema";
 const url = process.env.DATABASE_URL;
 if (!url) throw new Error("DATABASE_URL is required");
 
-// Serverless-friendly: small pool, prepare disabled for pgbouncer/Neon pooler.
+// Bound concurrency to four connections; independent SSR reads can overlap.
 const client = postgres(url, {
-  max: 1,
+  max: 4,
   idle_timeout: 20,
   prepare: false,
 });

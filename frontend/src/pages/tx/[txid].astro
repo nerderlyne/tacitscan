@@ -1,12 +1,13 @@
 ---
 import { protocolTransaction, parityEnabled } from "../../lib/protocol-queries";
+import AssetMetadata from "../../components/AssetMetadata.astro";
 import Layout from "../../layouts/Layout.astro";
 import AssetMark from "../../components/AssetMark.astro";
 import AssetThumb from "../../components/AssetThumb.astro";
 import { getEnvelope, getEnvelopeByCommitTxid, getCommitmentsByTx, setEnvelopeFee, getDuplicateTickers, getIndexerTipHeight } from "../../lib/queries";
 import { bytesToHex, formatAmount, relativeTime, shortHex, OPCODE_DESCRIPTIONS, describeBadge, describeUnknownEnvelope, displayAssetName } from "../../lib/format";
 import { fetchTxFee, fetchTxIO } from "../../lib/esplora";
-import { fetchAssetMetadata, formatRevealedSupply } from "../../lib/etch-metadata";
+
 import airdropHistory from "../../data/airdrop-history.json";
 
 const { txid } = Astro.params;
@@ -120,12 +121,6 @@ if (TRANSFER_OPCODES.has(env.opcode)) {
 // asset page uses). For non-etch envelopes this is a no-op (asset is the
 // row that came from a separate query, and only etches set imageUri).
 const isEtch = env.opcode === "CETCH" || env.opcode === "T_PETCH";
-const etchMetadata = isEtch && asset?.imageUri ? await fetchAssetMetadata(asset.imageUri) : null;
-const etchAttest = etchMetadata?.attest ?? null;
-const etchRevealedSupply = etchAttest?.supply && asset
-  ? formatRevealedSupply(etchAttest.supply, asset.decimals)
-  : null;
-
 // If this CXFER is one of our airdrop fulfilment broadcasts, pull the
 // recipient list out of the committed snapshot. Lets viewers see who
 // got paid in this batch without leaving the tx page.
@@ -156,7 +151,7 @@ switch (env.opcode) {
   case "CETCH":
     summary = {
       headline: `Etched ${ticker} (confidential supply)`,
-      detail: `Issuer created a new confidential token. ${asset?.mintAuthority ? "Mintable — further supply can be added by the mint authority." : "Immutable supply — no further mints possible."} ${etchRevealedSupply ? `Supply revealed off-chain: ${etchRevealedSupply} ${ticker}.` : "Supply is hidden on-chain (Pedersen commitment); the issuer may publish the opening via the metadata blob."}`,
+      detail: `Issuer created a new confidential token. ${asset?.mintAuthority ? "Mintable — further supply can be added by the mint authority." : "Immutable supply — no further mints possible."} Supply is hidden on-chain (Pedersen commitment); the issuer may publish the opening via the metadata blob.`,
     };
     break;
   case "T_PETCH":
@@ -526,65 +521,7 @@ const jsonLd = {
     }
   </dl>
 
-  {isEtch && etchMetadata && (etchMetadata.parsed || etchMetadata.error) && (
-    <section class="etch-meta" style="margin-top:24px;padding:14px 16px;border:1px solid var(--ink-faint,#ddd);border-radius:6px;background:var(--bg-warm,#fafafa);">
-      <h2 style="margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;color:var(--ink-mid,#666);">Etch metadata</h2>
-      <p class="muted" style="font-size:12px;margin:0 0 12px;">
-        Off-chain JSON the issuer published at the envelope's <code class="mono">image_uri</code>.
-        {etchMetadata.gatewayUrl && (
-          <> <a href={etchMetadata.gatewayUrl} target="_blank" rel="noreferrer">view raw</a></>
-        )}
-      </p>
-      {etchMetadata.error && !etchMetadata.parsed && (
-        <p class="muted" style="font-size:12px;color:var(--ink-mid,#666);">
-          Couldn't decode metadata: {etchMetadata.error}
-        </p>
-      )}
-      {etchMetadata.parsed && (
-        <dl class="kv">
-          {etchMetadata.parsed.name && (<><dt>name</dt><dd>{etchMetadata.parsed.name}</dd></>)}
-          {etchMetadata.parsed.description && (<><dt>description</dt><dd>{etchMetadata.parsed.description}</dd></>)}
-          {etchMetadata.parsed.external_url && (
-            <>
-              <dt>external link</dt>
-              <dd><a href={etchMetadata.parsed.external_url} target="_blank" rel="noreferrer" class="mono">{etchMetadata.parsed.external_url}</a></dd>
-            </>
-          )}
-          {typeof etchMetadata.parsed.decimals === "number" && asset && (
-            <>
-              <dt>declared decimals</dt>
-              <dd>
-                <span class="mono">{etchMetadata.parsed.decimals}</span>
-                {etchMetadata.parsed.decimals !== asset.decimals && (
-                  <span class="muted" style="margin-left:8px;color:#b14;">⚠ does not match on-chain ({asset.decimals})</span>
-                )}
-              </dd>
-            </>
-          )}
-          {etchAttest && (
-            <>
-              <dt>supply (revealed)</dt>
-              <dd>
-                {etchRevealedSupply ? (
-                  <>
-                    <span class="mono">{etchRevealedSupply}</span>
-                    {asset && <> <span class="muted">{asset.ticker}</span></>}
-                  </>
-                ) : (
-                  <span class="muted">malformed</span>
-                )}
-                <div class="muted" style="font-size:11px;margin-top:2px;">
-                  Issuer-published. On-chain supply commitment stays confidential; the blinding + commitment below let anyone re-derive the Pedersen point to verify it matches this envelope.
-                </div>
-              </dd>
-              {etchAttest.commitment && (<><dt>commitment</dt><dd class="mono" style="word-break:break-all;">{etchAttest.commitment}</dd></>)}
-              {etchAttest.blinding && (<><dt>blinding</dt><dd class="mono" style="word-break:break-all;">{etchAttest.blinding}</dd></>)}
-            </>
-          )}
-        </dl>
-      )}
-    </section>
-  )}
+  {isEtch && asset?.imageUri && <AssetMetadata assetId={asset.assetId} decimals={asset.decimals} ticker={asset.ticker} />}
 
   {recipientRows && recipientRows.length > 0 && (
     <>

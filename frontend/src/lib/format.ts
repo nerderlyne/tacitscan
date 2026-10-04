@@ -51,30 +51,8 @@ export function relativeTime(t: Date | string | null | undefined): string {
   return `${day}d ago`;
 }
 
-// Resolve `ipfs://<cid>` (or `ipfs://ipfs/<cid>`) to a public gateway URL.
-// Returns null for empty/invalid input. Direct https:// URIs pass through.
-// Cloudflare-fronted IPFS gateway — fast cache hits across regions.
-// Used as the public-facing URL we show to users. Resolver server-side
-// retains a fallback list in case any single gateway flakes.
-const GATEWAY = "https://content.wrappr.wtf/ipfs/";
-
-export function resolveImageUri(uri: string | null | undefined): string | null {
-  if (!uri) return null;
-  const trimmed = uri.trim();
-  if (!trimmed) return null;
-  if (trimmed.startsWith("https://") || trimmed.startsWith("http://")) return trimmed;
-  if (trimmed.startsWith("ipfs://")) {
-    let cid = trimmed.slice("ipfs://".length);
-    if (cid.startsWith("ipfs/")) cid = cid.slice("ipfs/".length);
-    if (!cid) return null;
-    return `${GATEWAY}${cid}`;
-  }
-  // Bare CID heuristic: starts with "bafy", "bafk", "bafr" or "Qm".
-  if (/^(baf[ykr]|Qm)/.test(trimmed)) {
-    return `${GATEWAY}${trimmed}`;
-  }
-  return null;
-}
+// Filebase mirrors Tacit's IPFS pins; normalize old stored gateway URLs too.
+export { normalizeMediaUri as resolveImageUri } from './asset-media';
 
 export const OPCODE_DESCRIPTIONS: Record<string, string> = {
   CETCH: "Confidential etch — issues a new asset with hidden supply.",

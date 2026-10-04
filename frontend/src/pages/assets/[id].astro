@@ -1,5 +1,6 @@
 ---
 import { TRANSFER_OPS } from "../../lib/protocol";
+import AssetMetadata from "../../components/AssetMetadata.astro";
 import Layout from "../../layouts/Layout.astro";
 import AssetThumb from "../../components/AssetThumb.astro";
 import AssetMark from "../../components/AssetMark.astro";
@@ -14,9 +15,8 @@ import {
   getDuplicateTickers,
 } from "../../lib/queries";
 import { shortHex, formatAmount, relativeTime, resolveImageUri, describeBadge, displayAssetName } from "../../lib/format";
-import { identiconSvg } from "../../lib/identicon";
 import { encodeP2TR } from "../../lib/bech32";
-import { fetchAssetMetadata, formatRevealedSupply } from "../../lib/etch-metadata";
+
 
 const { id } = Astro.params;
 if (!id) {
@@ -28,7 +28,7 @@ if (!asset) {
   return Astro.redirect("/assets");
 }
 const network = import.meta.env.PUBLIC_NETWORK ?? "mainnet";
-const [mints, burns, transfers, counts, mintStats, cumBurned, duplicates, metadata] = await Promise.all([
+const [mints, burns, transfers, counts, mintStats, cumBurned, duplicates] = await Promise.all([
   getAssetMints(id, asset.capAmount, asset.mintLimit),
   getAssetBurns(id),
   getAssetTransfers(id),
@@ -36,10 +36,7 @@ const [mints, burns, transfers, counts, mintStats, cumBurned, duplicates, metada
   getMintStats(id, asset.capAmount, asset.mintLimit),
   getCumulativeBurned(id),
   getDuplicateTickers(network),
-  fetchAssetMetadata(asset.imageUri),
 ]);
-const attest = metadata.attest;
-const revealedSupply = attest?.supply ? formatRevealedSupply(attest.supply, asset.decimals) : null;
 const hasCollision = duplicates.has(asset.ticker);
 const displayName = displayAssetName(asset.ticker, asset.assetId, hasCollision);
 
@@ -64,7 +61,7 @@ const STATUS_INFO: Record<string, { label: string; cls: string; tipDefault: stri
   ok: { label: "ok", cls: "t_mint", tipDefault: "" },
 };
 
-const heroImage = asset.resolvedImageUrl ?? resolveImageUri(asset.imageUri) ?? undefined;
+const heroImage = resolveImageUri(asset.resolvedImageUrl) ?? undefined;
 const description = `${asset.ticker} (${asset.kind}) — ${describeBadge(asset.kind)} ${asset.decimals} decimals. Etched at Bitcoin block ${asset.etchHeight}.`;
 const jsonLd = {
   "@context": "https://schema.org",
@@ -87,14 +84,7 @@ const jsonLd = {
   <div class="asset-header">
     <span class="asset-hero-thumb">
       {
-        (() => {
-          const heroSrc = asset.resolvedImageUrl ?? resolveImageUri(asset.imageUri);
-          return heroSrc ? (
-            <img src={heroSrc} alt={asset.ticker} loading="eager" />
-          ) : (
-            <span class="identicon" set:html={identiconSvg(asset.assetId, 96)} />
-          );
-        })()
+        <AssetThumb imageUri={asset.imageUri} resolvedImageUrl={asset.resolvedImageUrl} assetId={asset.assetId} ticker={asset.ticker} size={96} />
       }
     </span>
     <div class="meta" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
@@ -201,85 +191,7 @@ const jsonLd = {
     }
   </dl>
 
-  {(metadata.parsed || metadata.error) && (
-    <section class="etch-meta" style="margin-top:24px;padding:14px 16px;border:1px solid var(--ink-faint,#ddd);border-radius:6px;background:var(--bg-warm,#fafafa);">
-      <h2 style="margin:0 0 6px;font-size:13px;text-transform:uppercase;letter-spacing:0.04em;color:var(--ink-mid,#666);">Etch metadata</h2>
-      <p class="muted" style="font-size:12px;margin:0 0 12px;">
-        Off-chain JSON blob the issuer published at the etch's <code class="mono">image_uri</code>.
-        {metadata.gatewayUrl && (
-          <> <a href={metadata.gatewayUrl} target="_blank" rel="noreferrer">view raw</a></>
-        )}
-      </p>
-      {metadata.error && !metadata.parsed && (
-        <p class="muted" style="font-size:12px;color:var(--ink-mid,#666);">
-          Couldn't decode metadata: {metadata.error}
-        </p>
-      )}
-      {metadata.parsed && (
-        <dl class="kv">
-          {metadata.parsed.name && (
-            <>
-              <dt>name</dt>
-              <dd>{metadata.parsed.name}</dd>
-            </>
-          )}
-          {metadata.parsed.description && (
-            <>
-              <dt>description</dt>
-              <dd>{metadata.parsed.description}</dd>
-            </>
-          )}
-          {metadata.parsed.external_url && (
-            <>
-              <dt>external link</dt>
-              <dd><a href={metadata.parsed.external_url} target="_blank" rel="noreferrer" class="mono">{metadata.parsed.external_url}</a></dd>
-            </>
-          )}
-          {typeof metadata.parsed.decimals === "number" && (
-            <>
-              <dt>declared decimals</dt>
-              <dd>
-                <span class="mono">{metadata.parsed.decimals}</span>
-                {metadata.parsed.decimals !== asset.decimals && (
-                  <span class="muted" style="margin-left:8px;color:#b14;">⚠ does not match on-chain ({asset.decimals})</span>
-                )}
-              </dd>
-            </>
-          )}
-          {attest && (
-            <>
-              <dt>supply (revealed)</dt>
-              <dd>
-                {revealedSupply ? (
-                  <>
-                    <span class="mono">{revealedSupply}</span>{" "}
-                    <span class="muted">{asset.ticker}</span>
-                  </>
-                ) : (
-                  <span class="muted">malformed</span>
-                )}
-                <div class="muted" style="font-size:11px;margin-top:2px;">
-                  Issuer-published. On-chain commitment stays confidential; the blinding + commitment below let anyone re-derive the Pedersen point to verify it matches the etch envelope.
-                </div>
-              </dd>
-              {attest.commitment && (
-                <>
-                  <dt>commitment</dt>
-                  <dd class="mono" style="word-break:break-all;">{attest.commitment}</dd>
-                </>
-              )}
-              {attest.blinding && (
-                <>
-                  <dt>blinding</dt>
-                  <dd class="mono" style="word-break:break-all;">{attest.blinding}</dd>
-                </>
-              )}
-            </>
-          )}
-        </dl>
-      )}
-    </section>
-  )}
+  {asset.imageUri && <AssetMetadata assetId={asset.assetId} decimals={asset.decimals} ticker={asset.ticker} />}
 
   <div class="stats" style="margin-top:24px">
     {

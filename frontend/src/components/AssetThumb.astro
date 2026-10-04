@@ -11,8 +11,8 @@ interface Props {
   rounded?: boolean;
 }
 const { imageUri, resolvedImageUrl, assetId, ticker, size = 28, rounded = true } = Astro.props;
-const src = resolvedImageUrl ?? resolveImageUri(imageUri);
-const identicon = src ? "" : identiconSvg(assetId, size);
+const src = resolveImageUri(resolvedImageUrl);
+const identicon = identiconSvg(assetId, size);
 ---
 
 <span
@@ -20,18 +20,37 @@ const identicon = src ? "" : identiconSvg(assetId, size);
   style={`width:${size}px;height:${size}px`}
   title={ticker}
 >
-  {
-    src ? (
-      <img
-        src={src}
-        alt={ticker}
-        loading="lazy"
-        decoding="async"
-        width={size}
-        height={size}
-      />
-    ) : (
-      <span class="identicon" set:html={identicon} />
-    )
-  }
+  <span class="identicon" hidden={!!src} set:html={identicon} />
+  <img src={src ?? undefined} hidden={!src} data-asset-logo={assetId}
+    data-has-media={!!imageUri} alt={ticker} loading="lazy" decoding="async" width={size} height={size} />
 </span>
+
+<script>
+  import { loadAssetMedia } from '../lib/media-client';
+  const queue: HTMLImageElement[] = []; let running = 0;
+  const pump = () => {
+    while (running < 4 && queue.length) {
+      const img = queue.shift()!; running++;
+      loadAssetMedia(img.dataset.assetLogo!).then(result => {
+        if (result.imageUrl) { img.src = result.imageUrl; img.hidden = false; }
+      }).catch(() => {}).finally(() => { running--; pump(); });
+    }
+  };
+  const observer = new IntersectionObserver(entries => {
+    for (const entry of entries) if (entry.isIntersecting) {
+      observer.unobserve(entry.target);
+      const img = entry.target.querySelector<HTMLImageElement>('[data-asset-logo]');
+      if (img) { queue.push(img); pump(); }
+    }
+  }, { rootMargin: '100px' });
+  for (const img of document.querySelectorAll<HTMLImageElement>('[data-asset-logo]')) {
+    let retried = false;
+    const placeholder = img.previousElementSibling as HTMLElement;
+    img.addEventListener('load', () => { img.hidden = false; placeholder.hidden = true; });
+    img.addEventListener('error', () => {
+      img.hidden = true; placeholder.hidden = false;
+      if (!retried && img.dataset.hasMedia === 'true') { retried = true; observer.observe(img.parentElement!); }
+    });
+    if (!img.hasAttribute('src') && img.dataset.hasMedia === 'true') { retried = true; observer.observe(img.parentElement!); }
+  }
+</script>

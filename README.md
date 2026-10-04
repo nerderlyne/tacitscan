@@ -188,3 +188,23 @@ check only their documented predicates. No hidden amounts or ownership are infer
 Run `node scripts/sync-protocol.mjs --check` from the repository root to check
 shared schema/operation definitions. Deployment and replay are explicit operational
 steps; see [the runbook](docs/protocol-rollout.md).
+
+## Asset images and page performance
+
+IPFS media resolution follows the Filebase mirror and public gateway fallbacks
+used by Tacit (image behavior reviewed at `9da3b159`). Old
+`content.wrappr.wtf` URLs normalize to Filebase immediately; the background
+resolver retries failures and repairs obsolete stored URLs. Metadata with no
+image uses the asset identicon. The frontend loads off-chain metadata and
+unresolved images asynchronously through `/api/asset-metadata?asset=ASSET_ID`.
+Server fetches accept IPFS content only, bound response size and time, and never
+follow arbitrary metadata-selected hosts. Direct HTTPS image URLs still render
+in the browser. Metadata requires JavaScript; on-chain fields remain server rendered.
+
+The frontend uses at most four database connections. Homepage data caches for
+10 seconds, duplicate tickers for 30 seconds, and successful media lookups for
+one hour (HTTP media responses cache for five minutes). Concurrent cache misses
+share one load. Recent block counts query only the displayed blocks. Chain-tip
+refreshes no longer hold a page render for the remote timeout. These caches can
+introduce their stated display delays; readiness and validation results are not
+included in the homepage cache. No extra service or compute plan is introduced.

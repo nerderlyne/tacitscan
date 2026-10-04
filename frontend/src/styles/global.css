@@ -1166,3 +1166,6 @@ footer.site .footer-part {
     padding: 12px 14px;
   }
 }
+
+/* Image placeholders must yield to native hidden toggles. */
+.asset-thumb [hidden] { display: none !important; }
