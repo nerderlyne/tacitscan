@@ -11,7 +11,12 @@ export interface EvmLog {address:string; topics:Hex[]; data:Hex; transactionHash
 export function decodeEvmLog(log:EvmLog, name:string) {
   const abi=eventAbis[name as keyof typeof eventAbis] as Abi | undefined;
   if(!abi) return {eventName:'Unknown',args:{topics:log.topics,data:log.data}};
-  try {const value=decodeEventLog({abi,topics:log.topics as [Hex,...Hex[]],data:log.data,strict:true}); return {eventName:value.eventName!,args:jsonSafe(value.args)};}
+  try {
+    const value=decodeEventLog({abi,topics:log.topics as [Hex,...Hex[]],data:log.data,strict:true});
+    // Viem returns undefined for argument-free events (e.g. ContractURIUpdated).
+    // Always supply JSON to the insert; undefined leaves an empty SQL fragment.
+    return {eventName:value.eventName!,args:jsonSafe(value.args ?? {})};
+  }
   catch {return {eventName:'Unknown',args:{topics:log.topics,data:log.data}};}
 }
 export function makeRpc(url:string) {
