@@ -42,9 +42,34 @@ const api=process.env.ESPLORA_URL||(network==='signet'?'https://mempool.space/si
 const confirmations=Number(process.env.CONFIRMATION_DEPTH||3);
 if(!Number.isSafeInteger(confirmations)||confirmations<3) throw new Error('CONFIRMATION_DEPTH must be at least three');
 const originalFetch=globalThis.fetch;
+// A failed request names its host and the network error, since a bare "fetch failed" does not say which source to fix.
+const hostOf=url=>{try{return new URL(url).host}catch{return '?'}};
+const fetchNamed=async(input,init)=>{
+  try{return await originalFetch(input,init);}
+  catch(e){throw Object.assign(new Error(`${e?.message||e} (${hostOf(String(input?.url??input))}${e?.cause?.code?` ${e.cause.code}`:''})`),{cause:e?.cause??e});}
+};
+// The Bitcoin source the replay reads, and that the upstream worker it hosts reads through this same fetch. A replay from the
+// start height pulls tens of thousands of raw blocks, enough for one host to throttle or drop this address for a while, so a
+// GET it cannot answer (a network failure, a 429 or a 5xx) is asked of a mirror of the same API instead.
+const mirrors=[api,...String(process.env.ESPLORA_MIRROR_URLS??(network==='signet'?'':'https://mempool.emzy.de/api')).split(',').map(s=>s.trim().replace(/\/$/,'')).filter(Boolean)].filter((v,i,a)=>a.indexOf(v)===i);
+// Requests take the mirrors in turn, so the replay's load is shared rather than all on one host.
+let turn=0;
+async function fetchBitcoin(url,init) {
+  const base=mirrors.find(m=>url.startsWith(m)),path=url.slice(base.length),first=turn++%mirrors.length;
+  let last=null;
+  for(const m of [...mirrors.slice(first),...mirrors.slice(0,first)]) {
+    try {
+      const response=await fetchNamed(m+path,init);
+      if(response.status===429||response.status>=500) {last=new Error(`HTTP ${response.status} (${hostOf(m)})`);continue;}
+      return response;
+    } catch(e) {last=e;}
+  }
+  throw last;
+}
 globalThis.fetch=async(input,init)=>{
-  const response=await originalFetch(input,init);
-  if(new URL(String(input?.url??input)).pathname.endsWith('/blocks/tip/height')&&response.ok) {
+  const url=String(input?.url??input),get=typeof input==='string'||input instanceof URL?!init?.method||init.method==='GET':input.method==='GET';
+  const response=get&&mirrors.some(m=>url.startsWith(m))?await fetchBitcoin(url,init):await fetchNamed(input,init);
+  if(new URL(url).pathname.endsWith('/blocks/tip/height')&&response.ok) {
     const tip=Number(await response.text());
     if(!Number.isSafeInteger(tip)) throw new Error('Invalid Bitcoin tip');
     return new Response(String(tip-confirmations),{status:200});
@@ -55,13 +80,23 @@ const env=buildEnv(scoped,{extra:{MAINNET_API:api,SIGNET_API:api,DEBUG_TOKEN:tok
 const ctxFactory=createCtxFactory();
 const ethereumRpc=process.env.ETHEREUM_RPC_URL;
 if(!ethereumRpc) throw new Error('ETHEREUM_RPC_URL is required for canonical cross-out replay');
+// The configured Ethereum RPC first, then public ones, for the same read-only calls: every answer is checked against block hashes.
+const ethereumRpcs=[ethereumRpc,...String(process.env.ETHEREUM_RPC_FALLBACK_URLS??'https://ethereum-rpc.publicnode.com').split(',').map(s=>s.trim()).filter(Boolean)].filter((v,i,a)=>a.indexOf(v)===i);
 const ethRpc=async(method,params=[])=>{
-  const response=await originalFetch(ethereumRpc,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params}),signal:AbortSignal.timeout(20000)});
-  const body=await response.json();if(!response.ok||body.error||body.result==null) throw new Error('Ethereum replay RPC unavailable');return body.result;
+  let last=null;
+  for(const url of ethereumRpcs) {
+    try {
+      const response=await fetchNamed(url,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method,params}),signal:AbortSignal.timeout(20000)});
+      const body=await response.json();
+      if(response.ok&&!body.error&&body.result!=null) return body.result;
+      last=new Error(`Ethereum replay RPC unavailable (${hostOf(url)}: ${response.ok?(body.error?.message||'no result'):`HTTP ${response.status}`})`);
+    } catch(e) {last=e;}
+  }
+  throw last;
 };
 const {buildCrossoutConsumer}=await upstream('worker/src/crossout-consumer.js');
 const {keccak_256}=await upstream('worker/node_modules/@noble/hashes/sha3.js');
-const crossouts=buildCrossoutConsumer(env,{network,keccak256:keccak_256,rpcsForNetwork:()=>[ethereumRpc]});
+const crossouts=buildCrossoutConsumer(env,{network,keccak256:keccak_256,rpcsForNetwork:()=>ethereumRpcs});
 if(!crossouts) throw new Error('No pinned cross-out deployment for this network');
 const ethBlock=height=>ethRpc('eth_getBlockByNumber',['0x'+height.toString(16),false]);
 const cursorKey=network==='signet'?'meta:last_scanned':`meta:last_scanned:${network}`;
@@ -92,9 +127,22 @@ createServer(async(req,res)=>{
     res.end(await response.text());
   } catch {res.writeHead(503);res.end(JSON.stringify({error:'state unavailable'}));}
 }).listen(Number(process.env.PORT||8787),process.env.BIND_HOST||'127.0.0.1');
+// The replay is thrown away only for a reorganization every source agrees on: one host answering with a stale or wrong hash
+// for the saved block would otherwise restart the whole replay from the start height.
+async function bitcoinReorged() {
+  if(!meta.hash) return false;
+  const answers=[];
+  for(const m of mirrors) {
+    try{const r=await fetchNamed(`${m}/block-height/${meta.height}`,{signal:AbortSignal.timeout(20000)});if(r.ok){const h=(await r.text()).trim();if(/^[0-9a-f]{64}$/.test(h)) answers.push(h);}}catch{}
+  }
+  if(!answers.length) throw new Error(`no Bitcoin source answered for block ${meta.height}`);
+  if(answers.every(h=>h===meta.hash)) return false;
+  if(answers.every(h=>h!==meta.hash)&&answers.length>=Math.min(2,mirrors.length)) return true;
+  throw new Error(`Bitcoin sources disagree about block ${meta.height}; waiting for them to agree`);
+}
 for(;;) {
   try {
-    if((meta.hash&&await getText(`/block-height/${meta.height}`)!==meta.hash)||(meta.ethHash&&(await ethBlock(meta.ethHeight)).hash!==meta.ethHash)) {
+    if(await bitcoinReorged()||(meta.ethHash&&(await ethBlock(meta.ethHeight)).hash!==meta.ethHash)) {
       meta={epoch:randomBytes(16).toString('hex'),height:start-1,hash:'',start,revision:REVISION};
       await save();
       // Restart clears all upstream module-level state and cached derived data.
