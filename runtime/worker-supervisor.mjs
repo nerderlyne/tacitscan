@@ -21,8 +21,14 @@ function stop(code, signal = 'SIGTERM') {
   if (!children.size) { clearTimeout(timer); process.exit(code); }
 }
 for (const signal of ['SIGTERM', 'SIGINT']) process.on(signal, () => stop(0, signal));
+// The two local reference services are sidecars: when one exits (the state service exits 75 to be started afresh after a
+// failed replay step), only it is started again, after a backoff that grows while it keeps failing, and the indexer runs on.
+// Taking the whole container down for it turns one unreachable source into a crash loop that Render suspends.
+const SIDECARS = new Set(['/app/state-service.mjs', '/app/pool-service.mjs']);
+const restarts = new Map();
 function launch(file, env = {}) {
   console.log(`[worker] starting ${file}`);
+  const startedAt = Date.now();
   const child = spawn(process.execPath, ['--enable-source-maps', file], {
     stdio: 'inherit', detached: true, env: { ...process.env, ...env },
   });
@@ -34,6 +40,15 @@ function launch(file, env = {}) {
   child.on('exit', (code, signal) => {
     console.error(`[worker] ${file} exited (code=${code}, signal=${signal ?? 'none'})`);
     children.delete(child);
+    if (!stopping && SIDECARS.has(file)) {
+      // A run of ten minutes or more counts as healthy, so the next failure starts the backoff over.
+      const n = Date.now() - startedAt >= 600000 ? 1 : (restarts.get(file) ?? 0) + 1;
+      restarts.set(file, n);
+      const delay = Math.min(300000, 10000 * 2 ** (n - 1));
+      console.error(`[worker] starting ${file} again in ${delay / 1000}s (attempt ${n}); the indexer keeps running`);
+      setTimeout(() => { if (!stopping) launch(file, env); }, delay);
+      return;
+    }
     if (!stopping) stop(1);
     if (!children.size) { clearTimeout(timer); process.exit(process.exitCode ?? 1); }
   });
