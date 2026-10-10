@@ -9,6 +9,7 @@ import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { createTransactionalDriver } from './postgres-kv.mjs';
+import { makeMirrors } from './esplora-mirrors.mjs';
 const root=process.env.TACIT_SOURCE_DIR||'/opt/tacit';
 const upstream=(file)=>import(pathToFileURL(`${root}/${file}`).href);
 const REVISION='7a917a8ec4dad72210351d80bcbf269073ac790d';
@@ -49,29 +50,19 @@ const fetchNamed=async(input,init)=>{
   catch(e){throw Object.assign(new Error(`${e?.message||e} (${hostOf(String(input?.url??input))}${e?.cause?.code?` ${e.cause.code}`:''})`),{cause:e?.cause??e});}
 };
 // The Bitcoin source the replay reads, and that the upstream worker it hosts reads through this same fetch. A replay from the
-// start height pulls tens of thousands of raw blocks, enough for one host to throttle or drop this address for a while, so a
-// GET it cannot answer (a network failure, a 429 or a 5xx) is asked of a mirror of the same API instead.
-const mirrors=[api,...String(process.env.ESPLORA_MIRROR_URLS??(network==='signet'?'':'https://mempool.emzy.de/api')).split(',').map(s=>s.trim().replace(/\/$/,'')).filter(Boolean)].filter((v,i,a)=>a.indexOf(v)===i);
-// Requests take the mirrors in turn, so the replay's load is shared rather than all on one host.
-let turn=0;
-async function fetchBitcoin(url,init) {
-  const base=mirrors.find(m=>url.startsWith(m)),path=url.slice(base.length),first=turn++%mirrors.length;
-  let last=null;
-  for(const m of [...mirrors.slice(first),...mirrors.slice(0,first)]) {
-    try {
-      const response=await fetchNamed(m+path,init);
-      if(response.status===429||response.status>=500) {last=new Error(`HTTP ${response.status} (${hostOf(m)})`);continue;}
-      return response;
-    } catch(e) {last=e;}
-  }
-  throw last;
-}
+// start height downloads every block since then (tens of gigabytes), enough for one public host to refuse this address for
+// hours, so the same API is read from several hosts that serve identical data, paced, rotated, and left alone for a while
+// after one refuses (runtime/esplora-mirrors.mjs). ESPLORA_URL leads; ESPLORA_FALLBACK_URL and ESPLORA_MIRROR_URLS add hosts.
+const extraMirrors=(process.env.ESPLORA_MIRROR_URLS??(network==='signet'?'':'https://mempool.emzy.de/api,https://mempool.bitaroo.net/api')).split(',');
+const bitcoin=makeMirrors({urls:[api,process.env.ESPLORA_FALLBACK_URL||(network==='signet'?'':'https://blockstream.info/api'),...extraMirrors],fetchImpl:originalFetch,gapMs:Number(process.env.ESPLORA_MIN_GAP_MS||120)});
+let knownTip=0;
 globalThis.fetch=async(input,init)=>{
   const url=String(input?.url??input),get=typeof input==='string'||input instanceof URL?!init?.method||init.method==='GET':input.method==='GET';
-  const response=get&&mirrors.some(m=>url.startsWith(m))?await fetchBitcoin(url,init):await fetchNamed(input,init);
+  const response=get&&bitcoin.bases.some(m=>url.startsWith(m))?await bitcoin.fetchBitcoin(url,init):await fetchNamed(input,init);
   if(new URL(url).pathname.endsWith('/blocks/tip/height')&&response.ok) {
     const tip=Number(await response.text());
     if(!Number.isSafeInteger(tip)) throw new Error('Invalid Bitcoin tip');
+    knownTip=tip;
     return new Response(String(tip-confirmations),{status:200});
   }
   return response;
@@ -107,7 +98,7 @@ async function request(path,method='GET',body) {
   const response=await worker.fetch(new Request(`http://state${path}`,{method,headers:method==='POST'?{authorization:`Bearer ${token}`,'content-type':'application/json'}:{},...(body?{body:JSON.stringify(body)}:{})}),env,ctx);
   await ctx._drain();return response;
 }
-const status=()=>({...meta,network,sourceRevision:REVISION,error:scanError,provenance:'self-hosted-upstream',readOnly:true});
+const status=()=>({...meta,network,sourceRevision:REVISION,error:scanError,provenance:'self-hosted-upstream',readOnly:true,bitcoinTip:knownTip||null,bitcoinSources:bitcoin.status()});
 const allowed=/^\/(?:assets(?:\/[0-9a-f]{64}(?:\/pmints|\/recent-xfer-txids)?)?|petch-assets(?:\/[0-9a-f]{64})?|amm\/(?:pools|swap-accepted|pool\/[0-9a-f]{64}(?:\/ops|\/head)?)|farms|farm\/(?:program|health|[0-9a-f]{64}(?:\/bonds)?)|reflection\/status|confidential\/index|crossout\/minted)$/;
 createServer(async(req,res)=>{
   try {
@@ -127,22 +118,31 @@ createServer(async(req,res)=>{
     res.end(await response.text());
   } catch {res.writeHead(503);res.end(JSON.stringify({error:'state unavailable'}));}
 }).listen(Number(process.env.PORT||8787),process.env.BIND_HOST||'127.0.0.1');
-// The replay is thrown away only for a reorganization every source agrees on: one host answering with a stale or wrong hash
-// for the saved block would otherwise restart the whole replay from the start height.
+// The replay is thrown away only for a reorganization every source agrees on: one host answering with a stale or wrong hash for
+// the saved block would otherwise restart the whole replay from the start height. A block buried this deep cannot be reorganized,
+// so the check is made in full only near the tip and now and then below it, and when no source can be asked it says so (null)
+// and the loop waits and tries again instead of restarting the process.
+let checks=0,lastProgress=0,lastProgressHeight=null,behind=true;
 async function bitcoinReorged() {
   if(!meta.hash) return false;
+  if(knownTip&&meta.height<knownTip-200&&checks++%100!==0) return false;
   const answers=[];
-  for(const m of mirrors) {
-    try{const r=await fetchNamed(`${m}/block-height/${meta.height}`,{signal:AbortSignal.timeout(20000)});if(r.ok){const h=(await r.text()).trim();if(/^[0-9a-f]{64}$/.test(h)) answers.push(h);}}catch{}
+  for(const m of bitcoin.bases) {
+    try{const r=await bitcoin.askOne(m,`/block-height/${meta.height}`,{signal:AbortSignal.timeout(20000)});if(r&&r.ok){const h=(await r.text()).trim();if(/^[0-9a-f]{64}$/.test(h)) answers.push(h);}}catch{}
   }
-  if(!answers.length) throw new Error(`no Bitcoin source answered for block ${meta.height}`);
+  if(!answers.length) return null;
   if(answers.every(h=>h===meta.hash)) return false;
-  if(answers.every(h=>h!==meta.hash)&&answers.length>=Math.min(2,mirrors.length)) return true;
+  if(answers.every(h=>h!==meta.hash)&&answers.length>=Math.min(2,bitcoin.bases.length)) return true;
   throw new Error(`Bitcoin sources disagree about block ${meta.height}; waiting for them to agree`);
 }
 for(;;) {
   try {
-    if(await bitcoinReorged()||(meta.ethHash&&(await ethBlock(meta.ethHeight)).hash!==meta.ethHash)) {
+    const reorged=await bitcoinReorged();
+    if(reorged===null) {
+      scanError=`no Bitcoin source answered for block ${meta.height} (${bitcoin.describe()})`;console.error('[state]',scanError);
+      await new Promise(r=>setTimeout(r,30000));continue;
+    }
+    if(reorged||(meta.ethHash&&(await ethBlock(meta.ethHeight)).hash!==meta.ethHash)) {
       meta={epoch:randomBytes(16).toString('hex'),height:start-1,hash:'',start,revision:REVISION};
       await save();
       // Restart clears all upstream module-level state and cached derived data.
@@ -163,14 +163,17 @@ for(;;) {
       // Finish discovering finalized cross-outs before judging Bitcoin claims.
       if(ethHeight<ethSafe) {
         const next={...meta,ethHeight,ethHash,lastSeq:await driver.lastSequence(meta.epoch),updatedAt:new Date().toISOString()};
-        await driver.put(metaNamespace,network,Buffer.from(JSON.stringify(next)));return next;
+        await driver.put(metaNamespace,network,Buffer.from(JSON.stringify(next)));behind=true;return next;
       }
+      // Behind the tip, a scan step takes several blocks (the upstream stops early when its own request budget is spent and
+      // resumes from there); at the tip it takes one.
+      env.SCAN_BLOCKS_MAINNET=String(behind?Math.min(100,Math.max(1,Number(process.env.STATE_CATCHUP_BLOCKS||10))):1);
       const response=await request(`/scan?network=${network}`,'POST');
       if(!response.ok) throw new Error(`Upstream scan HTTP ${response.status}`);
       const height=Number(await env.REGISTRY_KV.get(cursorKey));
       const hash=await getText(`/block-height/${height}`);
       if(!/^[0-9a-f]{64}$/.test(hash)||!Number.isSafeInteger(height)||height<meta.height) throw new Error('Invalid upstream scan checkpoint');
-      if((meta.hash&&await getText(`/block-height/${meta.height}`)!==meta.hash)||(meta.ethHash&&(await ethBlock(meta.ethHeight)).hash!==meta.ethHash)) throw new Error('Chain changed during state replay');
+      if((meta.hash&&!(knownTip&&meta.height<knownTip-200)&&await getText(`/block-height/${meta.height}`)!==meta.hash)||(meta.ethHash&&(await ethBlock(meta.ethHeight)).hash!==meta.ethHash)) throw new Error('Chain changed during state replay');
       const recordedHash=await env.REGISTRY_KV.get(network==='signet'?'meta:last_scanned_hash':`meta:last_scanned_hash:${network}`);
       if(recordedHash!==hash) throw new Error('Scanned block does not match canonical checkpoint');
       const pendingClaims=await env.REGISTRY_KV.list({prefix:`crossout-minted:${network}:`,limit:100,...(meta.crossoutRefreshCursor?{cursor:meta.crossoutRefreshCursor}:{})});
@@ -184,13 +187,20 @@ for(;;) {
       if(ethHash&&(await ethBlock(ethHeight)).hash!==ethHash) throw new Error('Ethereum changed during Bitcoin state replay');
       const next={...meta,height,hash,ethHeight,ethHash,crossoutRefreshCursor:pendingClaims.list_complete?null:pendingClaims.cursor,lastSeq:await driver.lastSequence(meta.epoch),updatedAt:new Date().toISOString()};
       await driver.put(metaNamespace,network,Buffer.from(JSON.stringify(next)));
+      behind=!(knownTip&&knownTip-confirmations-height<=2);
       return next;
     });
     meta=next;scanError=null;
+    // One line a minute while it works: where the replay is, and how each Bitcoin host is doing.
+    if(Date.now()-lastProgress>=60000) {
+      const perMin=lastProgressHeight==null?null:Math.round((meta.height-lastProgressHeight)*60000/Math.max(1,Date.now()-lastProgress));
+      lastProgress=Date.now();lastProgressHeight=meta.height;
+      console.log(`[state] bitcoin block ${meta.height}${knownTip?` of ${knownTip-confirmations} (${Math.max(0,knownTip-confirmations-meta.height)} to go)`:''}${perMin==null?'':`, ${perMin}/min`}; ethereum block ${meta.ethHeight??'-'}${behind?' (catching up)':''}; ${bitcoin.describe()}`);
+    }
   } catch(e) {
     scanError=e.message;console.error('[state]',e.message);
     // Any upstream caches may describe rolled-back writes. Restart before retry.
     await new Promise(r=>setTimeout(r,10000));process.exit(75);
   }
-  await new Promise(r=>setTimeout(r,Number(process.env.SCAN_POLL_MS||10000)));
+  await new Promise(r=>setTimeout(r,behind?Number(process.env.CATCHUP_POLL_MS||400):Number(process.env.SCAN_POLL_MS||10000)));
 }
