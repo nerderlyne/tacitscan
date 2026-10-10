@@ -122,7 +122,7 @@ createServer(async(req,res)=>{
 // the saved block would otherwise restart the whole replay from the start height. A block buried this deep cannot be reorganized,
 // so the check is made in full only near the tip and now and then below it, and when no source can be asked it says so (null)
 // and the loop waits and tries again instead of restarting the process.
-let checks=0,lastProgress=0;
+let checks=0,lastProgress=0,lastProgressHeight=null,behind=true;
 async function bitcoinReorged() {
   if(!meta.hash) return false;
   if(knownTip&&meta.height<knownTip-200&&checks++%100!==0) return false;
@@ -163,8 +163,11 @@ for(;;) {
       // Finish discovering finalized cross-outs before judging Bitcoin claims.
       if(ethHeight<ethSafe) {
         const next={...meta,ethHeight,ethHash,lastSeq:await driver.lastSequence(meta.epoch),updatedAt:new Date().toISOString()};
-        await driver.put(metaNamespace,network,Buffer.from(JSON.stringify(next)));return next;
+        await driver.put(metaNamespace,network,Buffer.from(JSON.stringify(next)));behind=true;return next;
       }
+      // Behind the tip, a scan step takes several blocks (the upstream stops early when its own request budget is spent and
+      // resumes from there); at the tip it takes one.
+      env.SCAN_BLOCKS_MAINNET=String(behind?Math.min(100,Math.max(1,Number(process.env.STATE_CATCHUP_BLOCKS||10))):1);
       const response=await request(`/scan?network=${network}`,'POST');
       if(!response.ok) throw new Error(`Upstream scan HTTP ${response.status}`);
       const height=Number(await env.REGISTRY_KV.get(cursorKey));
@@ -184,18 +187,20 @@ for(;;) {
       if(ethHash&&(await ethBlock(ethHeight)).hash!==ethHash) throw new Error('Ethereum changed during Bitcoin state replay');
       const next={...meta,height,hash,ethHeight,ethHash,crossoutRefreshCursor:pendingClaims.list_complete?null:pendingClaims.cursor,lastSeq:await driver.lastSequence(meta.epoch),updatedAt:new Date().toISOString()};
       await driver.put(metaNamespace,network,Buffer.from(JSON.stringify(next)));
+      behind=!(knownTip&&knownTip-confirmations-height<=2);
       return next;
     });
     meta=next;scanError=null;
     // One line a minute while it works: where the replay is, and how each Bitcoin host is doing.
     if(Date.now()-lastProgress>=60000) {
-      lastProgress=Date.now();
-      console.log(`[state] replayed to block ${meta.height}${knownTip?` of ${knownTip-confirmations} (${Math.max(0,knownTip-confirmations-meta.height)} to go)`:''}; ${bitcoin.describe()}`);
+      const perMin=lastProgressHeight==null?null:Math.round((meta.height-lastProgressHeight)*60000/Math.max(1,Date.now()-lastProgress));
+      lastProgress=Date.now();lastProgressHeight=meta.height;
+      console.log(`[state] bitcoin block ${meta.height}${knownTip?` of ${knownTip-confirmations} (${Math.max(0,knownTip-confirmations-meta.height)} to go)`:''}${perMin==null?'':`, ${perMin}/min`}; ethereum block ${meta.ethHeight??'-'}${behind?' (catching up)':''}; ${bitcoin.describe()}`);
     }
   } catch(e) {
     scanError=e.message;console.error('[state]',e.message);
     // Any upstream caches may describe rolled-back writes. Restart before retry.
     await new Promise(r=>setTimeout(r,10000));process.exit(75);
   }
-  await new Promise(r=>setTimeout(r,Number(process.env.SCAN_POLL_MS||10000)));
+  await new Promise(r=>setTimeout(r,behind?Number(process.env.CATCHUP_POLL_MS||400):Number(process.env.SCAN_POLL_MS||10000)));
 }
