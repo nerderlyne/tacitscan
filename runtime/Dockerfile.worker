@@ -18,7 +18,7 @@ COPY indexer/src ./src
 COPY indexer/drizzle ./drizzle
 COPY indexer/tsconfig.json ./
 RUN pnpm build
-COPY runtime/state-service.mjs runtime/postgres-kv.mjs runtime/pool-service.mjs runtime/worker-supervisor.mjs /app/
+COPY runtime/state-service.mjs runtime/esplora-mirrors.mjs runtime/postgres-kv.mjs runtime/pool-service.mjs runtime/worker-supervisor.mjs /app/
 COPY runtime/pool-entrypoint.sh /app/pool-entrypoint.sh
 ENV TACIT_SOURCE_DIR=/opt/tacit NODE_ENV=production BTC_POOL_DB=/var/data/pool.db
 ENTRYPOINT ["sh","/app/pool-entrypoint.sh"]

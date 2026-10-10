@@ -5,7 +5,7 @@ RUN git init /opt/tacit && git -C /opt/tacit remote add origin https://github.co
 COPY runtime/worker/package.json runtime/worker/package-lock.json /opt/tacit/worker/
 COPY runtime/server/package.json runtime/server/package-lock.json /opt/tacit/server/
 RUN cd /opt/tacit/worker && npm ci --omit=dev --ignore-scripts && cd /opt/tacit/server && npm ci --omit=dev --ignore-scripts
-COPY runtime/state-service.mjs runtime/postgres-kv.mjs /app/
+COPY runtime/state-service.mjs runtime/esplora-mirrors.mjs runtime/postgres-kv.mjs /app/
 ENV TACIT_SOURCE_DIR=/opt/tacit PORT=8787 NODE_ENV=production BIND_HOST=0.0.0.0
 USER node
 CMD ["node","--max-old-space-size=640","/app/state-service.mjs"]
