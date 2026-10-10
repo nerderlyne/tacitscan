@@ -78,3 +78,17 @@ test('requests to the same host are spaced by the gap', async () => {
   for (let i = 0; i < 4; i++) await m.fetchBitcoin(`${A}/s`);
   assert.deepEqual(stamps.map((s, i) => (i ? s - stamps[i - 1] : 100)), [100, 100, 100, 100]);
 });
+
+test('an attempt that hangs is cut off by its own timeout, and the host is cooled', async () => {
+  let a = 0;
+  const m = makeMirrors({ urls: [A, B], gapMs: 0, attemptTimeoutMs: 50,
+    fetchImpl: async (url, init) => {
+      if (url.startsWith(A)) { a++; return new Promise((_, rej) => init.signal.addEventListener('abort', () => rej(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })))); }
+      return res(200);
+    } });
+  const t0 = Date.now();
+  for (let i = 0; i < 4; i++) assert.equal((await m.fetchBitcoin(`${A}/h`)).status, 200);
+  assert.equal(a, 1, 'the hanging host was tried once, then left alone');
+  assert.ok(Date.now() - t0 < 1500, 'and the four requests did not wait out a connect timeout');
+  assert.match(m.describe(), /a\.example: cooling \d+s \(The operation was aborted/);
+});

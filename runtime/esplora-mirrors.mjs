@@ -14,7 +14,7 @@
 const hostOf = (url) => { try { return new URL(url).host; } catch { return String(url); } };
 const DEFAULT_SLEEP = (ms) => new Promise((r) => setTimeout(r, ms));
 
-export function makeMirrors({ urls, fetchImpl = globalThis.fetch, gapMs = 120, now = () => Date.now(), sleep = DEFAULT_SLEEP, maxWaitMs = 15000 }) {
+export function makeMirrors({ urls, fetchImpl = globalThis.fetch, gapMs = 120, now = () => Date.now(), sleep = DEFAULT_SLEEP, maxWaitMs = 15000, attemptTimeoutMs = 8000 }) {
   const bases = [...new Set(urls.map((u) => String(u).trim().replace(/\/$/, '')).filter(Boolean))];
   if (!bases.length) throw new Error('makeMirrors: at least one URL is required');
   const st = new Map(bases.map((b) => [b, { until: 0, fails: 0, next: 0, why: null, ok: 0, refused: 0 }]));
@@ -31,8 +31,17 @@ export function makeMirrors({ urls, fetchImpl = globalThis.fetch, gapMs = 120, n
     const wait = s.next - now();
     s.next = Math.max(s.next, now()) + gapMs;
     if (wait > 0) await sleep(wait);
+    let timer = null;
     try {
-      const r = await named(base + path, init);
+      // Each attempt is bounded, so a host that drops this address (a connect timeout is tens of seconds) costs a few seconds
+      // and a cooldown, not the whole request.
+      let signal = init?.signal ?? null;
+      if (attemptTimeoutMs > 0) {
+        const ctl = new AbortController();
+        timer = setTimeout(() => ctl.abort(Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })), attemptTimeoutMs);
+        signal = signal && typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, ctl.signal]) : ctl.signal;
+      }
+      const r = await named(base + path, { ...(init || {}), ...(signal ? { signal } : {}) });
       if (r.status === 429 || r.status >= 500) {
         s.fails++; s.refused++;
         const ra = Number(r.headers?.get?.('retry-after'));
@@ -43,9 +52,9 @@ export function makeMirrors({ urls, fetchImpl = globalThis.fetch, gapMs = 120, n
       return r;
     } catch (e) {
       s.fails++; s.refused++;
-      cool(base, Math.min(120000, 5000 * 2 ** Math.min(s.fails - 1, 4)), String(e?.message || e).slice(0, 120));
+      cool(base, Math.min(300000, 5000 * 2 ** Math.min(s.fails - 1, 6)), String(e?.message || e).slice(0, 120));
       return null;
-    }
+    } finally { if (timer) clearTimeout(timer); }
   }
 
   async function fetchBitcoin(url, init) {
