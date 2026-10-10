@@ -122,7 +122,7 @@ createServer(async(req,res)=>{
 // the saved block would otherwise restart the whole replay from the start height. A block buried this deep cannot be reorganized,
 // so the check is made in full only near the tip and now and then below it, and when no source can be asked it says so (null)
 // and the loop waits and tries again instead of restarting the process.
-let checks=0;
+let checks=0,lastProgress=0;
 async function bitcoinReorged() {
   if(!meta.hash) return false;
   if(knownTip&&meta.height<knownTip-200&&checks++%100!==0) return false;
@@ -187,6 +187,11 @@ for(;;) {
       return next;
     });
     meta=next;scanError=null;
+    // One line a minute while it works: where the replay is, and how each Bitcoin host is doing.
+    if(Date.now()-lastProgress>=60000) {
+      lastProgress=Date.now();
+      console.log(`[state] replayed to block ${meta.height}${knownTip?` of ${knownTip-confirmations} (${Math.max(0,knownTip-confirmations-meta.height)} to go)`:''}; ${bitcoin.describe()}`);
+    }
   } catch(e) {
     scanError=e.message;console.error('[state]',e.message);
     // Any upstream caches may describe rolled-back writes. Restart before retry.
